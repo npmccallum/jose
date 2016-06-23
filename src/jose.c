@@ -5,6 +5,7 @@
 #include "jws.h"
 #include "jwe.h"
 
+#include <openssl/pem.h>
 #include <openssl/rand.h>
 
 #include <argp.h>
@@ -77,6 +78,105 @@ str_to_enum(const char *str, ...)
 
     va_end(ap);
     return i;
+}
+
+static EVP_PKEY *
+import_ec(FILE *file)
+{
+    EVP_PKEY *pkey = NULL;
+    EC_GROUP *grp = NULL;
+    EC_KEY *eckey = NULL;
+
+    grp = PEM_read_ECPKParameters(file, NULL, NULL, NULL);
+    if (!grp)
+        goto error;
+
+    eckey = PEM_read_ECPrivateKey(file, NULL, NULL, NULL);
+    if (!eckey)
+        goto error;
+
+    if (EC_KEY_set_group(eckey, grp) <= 0)
+        goto error;
+
+    pkey = EVP_PKEY_new();
+    if (!pkey)
+        goto error;
+
+    if (EVP_PKEY_set_type(pkey, EVP_PKEY_EC) <= 0)
+        goto error;
+
+    if (EVP_PKEY_set1_EC_KEY(pkey, eckey) <= 0)
+        goto error;
+
+    EC_GROUP_free(grp);
+    EC_KEY_free(eckey);
+    return pkey;
+
+error:
+    EVP_PKEY_free(pkey);
+    EC_GROUP_free(grp);
+    EC_KEY_free(eckey);
+    return NULL;
+}
+
+static int
+jose_import(int argc, char *argv[])
+{
+    STACK_OF(X509) *certs = NULL;
+    json_t *jwk = NULL;
+    FILE *file = NULL;
+
+    if (argc < 3)
+        return EXIT_FAILURE;
+
+    file = fopen(argv[2], "r");
+    if (!file) {
+        fprintf(stderr, "Unable to open: %s!\n", argv[2]);
+        return EXIT_FAILURE;
+    }
+
+    certs = sk_X509_new_null();
+    if (!certs)
+        goto error;
+
+    for (X509 *x = PEM_read_X509(file, NULL, NULL, NULL); x;
+               x = PEM_read_X509(file, NULL, NULL, NULL)) {
+        if (sk_X509_unshift(certs, x) <= 0)
+            goto error;
+    }
+
+    if (sk_X509_num(certs) > 0) {
+        jwk = jose_jwk_from_x5c(certs, JOSE_JWK_X5T_SHA1);
+    } else {
+        EVP_PKEY *pkey = NULL;
+
+        if (fseek(file, 0, SEEK_SET) != 0)
+            goto error;
+
+        pkey = import_ec(file);
+        if (pkey) {
+            jwk = jose_jwk_from_key(pkey, true);
+            EVP_PKEY_free(pkey);
+        }
+    }
+
+    if (!jwk)
+        goto error;
+
+    json_dumpf(jwk, stdout, JSON_SORT_KEYS);
+    fprintf(stdout, "\n");
+
+    sk_X509_pop_free(certs, X509_free);
+    json_decref(jwk);
+    fclose(file);
+    return EXIT_SUCCESS;
+
+error:
+    fprintf(stderr, "Error during import!\n");
+    sk_X509_pop_free(certs, X509_free);
+    json_decref(jwk);
+    fclose(file);
+    return EXIT_FAILURE;
 }
 
 static int
@@ -447,14 +547,15 @@ main(int argc, char *argv[])
     OpenSSL_add_all_algorithms();
     RAND_poll();
 
-    switch(str_to_enum(argv[1], "generate", "publicize", "sign", "verify",
-                       "encrypt", "decrypt", NULL)) {
-    case 0: return jose_generate(argc, argv);
-    case 1: return jose_publicize(argc, argv);
-    case 2: return jose_sign(argc, argv);
-    case 3: return jose_verify(argc, argv);
-    case 4: return jose_encrypt(argc, argv);
-    case 5: return jose_decrypt(argc, argv);
+    switch(str_to_enum(argv[1], "import", "export", "generate", "publicize",
+                       "sign", "verify", "encrypt", "decrypt", NULL)) {
+    case 0: return jose_import(argc, argv);
+    case 2: return jose_generate(argc, argv);
+    case 3: return jose_publicize(argc, argv);
+    case 4: return jose_sign(argc, argv);
+    case 5: return jose_verify(argc, argv);
+    case 6: return jose_encrypt(argc, argv);
+    case 7: return jose_decrypt(argc, argv);
     }
 
 usage:

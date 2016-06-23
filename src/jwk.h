@@ -3,8 +3,18 @@
 #pragma once
 
 #include <openssl/evp.h>
+#include <openssl/x509.h>
 #include <jansson.h>
 #include <stdbool.h>
+
+typedef enum {
+    JOSE_JWK_X5T_NONE   = 0,
+    JOSE_JWK_X5T_SHA1   = 1 << 0,
+    JOSE_JWK_X5T_SHA224 = 1 << 1,
+    JOSE_JWK_X5T_SHA256 = 1 << 2,
+    JOSE_JWK_X5T_SHA384 = 1 << 3,
+    JOSE_JWK_X5T_SHA512 = 1 << 4,
+} jose_jwk_x5t_t;
 
 /**
  * Generate a new (random) JWK.
@@ -20,6 +30,12 @@ jose_jwk_publicize(json_t *jwk);
  */
 json_t * __attribute__((warn_unused_result))
 jose_jwk_from_key(EVP_PKEY *key, bool prv);
+
+json_t * __attribute__((warn_unused_result))
+jose_jwk_from_x5t(const X509 *x509, jose_jwk_x5t_t hashes);
+
+json_t * __attribute__((warn_unused_result))
+jose_jwk_from_x5c(const STACK_OF(X509) *chain, jose_jwk_x5t_t hashes);
 
 /**
  * Create a copy of the JWK.

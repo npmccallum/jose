@@ -3,10 +3,12 @@
 #include "jwk.h"
 #include "b64.h"
 #include "conv.h"
+#include "hash.h"
 
 #include <openssl/ec.h>
 #include <openssl/rand.h>
 #include <openssl/rsa.h>
+#include <openssl/sha.h>
 #include <openssl/objects.h>
 
 #include <stddef.h>
@@ -562,6 +564,103 @@ jose_jwk_from_key(EVP_PKEY *key, bool prv)
     case EVP_PKEY_EC: return from_ec(key->pkey.ec, prv);
     default: return NULL;
     }
+}
+
+json_t *
+jose_jwk_from_x5t(const X509 *x509, jose_jwk_x5t_t hashes)
+{
+    static const jose_jwk_x5t_t all[] = {
+        JOSE_JWK_X5T_SHA1,
+        JOSE_JWK_X5T_SHA224,
+        JOSE_JWK_X5T_SHA256,
+        JOSE_JWK_X5T_SHA384,
+        JOSE_JWK_X5T_SHA512,
+        JOSE_JWK_X5T_NONE
+    };
+
+    uint8_t *der = NULL;
+    json_t *jwk = NULL;
+    int len = 0;
+
+    jwk = jose_jwk_from_key(x509->cert_info->key->pkey, false);
+    if (!jwk)
+        return NULL;
+
+    len = i2d_X509((X509 *) x509, &der);
+    if (len < 0)
+        goto error;
+
+    for (size_t i = 0; all[i] != JOSE_JWK_X5T_NONE; i++) {
+        const EVP_MD *md = NULL;
+        const char *key = NULL;
+        json_t *val = NULL;
+
+        switch (hashes & all[i]) {
+        case JOSE_JWK_X5T_SHA1:   md = EVP_sha1();   key = "x5t";      break;
+        case JOSE_JWK_X5T_SHA224: md = EVP_sha224(); key = "x5t#S224"; break;
+        case JOSE_JWK_X5T_SHA256: md = EVP_sha256(); key = "x5t#S256"; break;
+        case JOSE_JWK_X5T_SHA384: md = EVP_sha384(); key = "x5t#S384"; break;
+        case JOSE_JWK_X5T_SHA512: md = EVP_sha512(); key = "x5t#S512"; break;
+        default: continue;
+        }
+
+        uint8_t hsh[EVP_MD_size(md)];
+        unsigned int ign = 0;
+
+        if (EVP_Digest(der, len, hsh, &ign, md, NULL) <= 0)
+            goto error;
+
+        val = jose_b64_encode_json(hsh, sizeof(hsh));
+        if (json_object_set_new(jwk, key, val) == -1)
+            goto error;
+    }
+
+    OPENSSL_free(der);
+    return jwk;
+
+error:
+    OPENSSL_free(der);
+    json_decref(jwk);
+    return NULL;
+}
+
+json_t *
+jose_jwk_from_x5c(const STACK_OF(X509) *chain, jose_jwk_x5t_t hashes)
+{
+    json_t *jwk = NULL;
+    json_t *x5c = NULL;
+    uint8_t *der = NULL;
+    int len = 0;
+
+    for (int i = 0; i < sk_X509_num(chain); i++) {
+        X509 *x509 = sk_X509_value(chain, i);
+
+        if (!jwk) {
+            jwk = jose_jwk_from_x5t(x509, hashes);
+            if (!jwk)
+                goto error;
+
+            x5c = json_array();
+            if (json_object_set_new(jwk, "x5c", x5c) == -1)
+                goto error;
+        }
+
+        len = i2d_X509(x509, &der);
+        if (len < 0)
+            goto error;
+
+        if (json_array_append_new(x5c, jose_b64_encode_json(der, len)) == -1)
+            goto error;
+
+        OPENSSL_free(der);
+    }
+
+    return jwk;
+
+error:
+    OPENSSL_free(der);
+    json_decref(jwk);
+    return NULL;
 }
 
 json_t *
