@@ -321,10 +321,14 @@ constructor(void)
     static const char *ec_req[] = { "crv", "x", "y", NULL };
     static const char *ec_prv[] = { "d", NULL };
 
+    static const char *sss_req[] = { "p", "e", NULL };
+    static const char *sss_prv[] = { "e", NULL };
+
     static jose_jwk_type_t builtin_types[] = {
         { .kty = "oct", .req = oct_req, .prv = oct_prv, .sym = true },
+        { .kty = "SSS", .req = sss_req, .prv = sss_prv, .sym = true },
         { .kty = "RSA", .req = rsa_req, .prv = rsa_prv },
-        { .kty = "EC", .req = ec_req, .prv = ec_prv },
+        { .kty = "EC",  .req = ec_req,  .prv = ec_prv  },
         {}
     };
 
