@@ -116,6 +116,7 @@ done
 ### Test encryption
 ##
 
+# Test with explicit CEK type
 for alg in $AWRAP $SWRAP; do
     for enc in $SENCR; do
         cmd/jose enc \
@@ -126,6 +127,22 @@ for alg in $AWRAP $SWRAP; do
     done
 done
 
+# Test with implicit CEK type
+for alg in $AWRAP $SWRAP; do
+    cmd/jose enc \
+	-i $tmpdir/msg.txt \
+	-o $tmpdir/$alg.jwe \
+	-k $tmpdir/$alg.jwk
+done
+
+# Test implicit direct mode
+for enc in $SENCR; do
+    cmd/jose enc \
+	-i $tmpdir/msg.txt \
+	-o $tmpdir/$enc.jwe \
+	-k $tmpdir/$enc.jwk
+done
+
 ##
 ### Test decryption
 ##
@@ -134,6 +151,14 @@ for alg in $AWRAP $SWRAP; do
     for enc in $SENCR; do
         cmd/jose dec -i $tmpdir/$enc.$alg.jwe -k $tmpdir/$alg.jwk
     done
+done
+
+for alg in $AWRAP $SWRAP; do
+    cmd/jose dec -i $tmpdir/$alg.jwe -k $tmpdir/$alg.jwk
+done
+
+for enc in $SENCR; do
+    cmd/jose dec -i $tmpdir/$enc.jwe -k $tmpdir/$enc.jwk
 done
 
 ##
