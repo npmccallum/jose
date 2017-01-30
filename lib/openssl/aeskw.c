@@ -27,6 +27,17 @@
 declare_cleanup(EVP_CIPHER_CTX)
 
 static bool
+handles(json_t *jwk)
+{
+    const char *alg = NULL;
+
+    if (json_unpack(jwk, "{s:s}", "alg", &alg) == -1)
+        return false;
+
+    return str2enum(alg, NAMES, NULL) < 3;
+}
+
+static bool
 resolve(json_t *jwk)
 {
     json_auto_t *upd = NULL;
@@ -206,6 +217,7 @@ static void __attribute__((constructor))
 constructor(void)
 {
     static jose_jwk_resolver_t resolver = {
+        .handles = handles,
         .resolve = resolve
     };
 
