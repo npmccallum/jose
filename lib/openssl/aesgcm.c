@@ -28,7 +28,7 @@
 declare_cleanup(EVP_CIPHER_CTX)
 
 static bool
-handles(json_t *jwk)
+handles(jose_ctx_t *ctx, json_t *jwk)
 {
     const char *alg = NULL;
 
@@ -39,7 +39,7 @@ handles(json_t *jwk)
 }
 
 static bool
-resolve(json_t *jwk)
+resolve(jose_ctx_t *ctx, json_t *jwk)
 {
     json_auto_t *upd = NULL;
     const char *kty = NULL;
@@ -81,7 +81,7 @@ resolve(json_t *jwk)
 }
 
 static const char *
-suggest_crypt(const json_t *jwk)
+suggest_crypt(jose_ctx_t *ctx, const json_t *jwk)
 {
     const char *kty = NULL;
     const char *k = NULL;
@@ -101,7 +101,7 @@ suggest_crypt(const json_t *jwk)
 }
 
 static const char *
-suggest_wrap(const json_t *jwk)
+suggest_wrap(jose_ctx_t *ctx, const json_t *jwk)
 {
     const char *kty = NULL;
     const char *k = NULL;
@@ -121,11 +121,11 @@ suggest_wrap(const json_t *jwk)
 }
 
 static bool
-do_encrypt(const json_t *cek, const uint8_t pt[], size_t ptl,
+do_encrypt(jose_ctx_t *ctx, const json_t *cek, const uint8_t pt[], size_t ptl,
            const char *enc, const char *prot, const char *aad,
            json_t *ivtgobj, json_t *ctobj, const char *ctn)
 {
-    openssl_auto(EVP_CIPHER_CTX) *ctx = NULL;
+    openssl_auto(EVP_CIPHER_CTX) *ecc = NULL;
     const EVP_CIPHER *cph = NULL;
     jose_buf_auto_t *ky = NULL;
     jose_buf_auto_t *ct = NULL;
@@ -155,44 +155,44 @@ do_encrypt(const json_t *cek, const uint8_t pt[], size_t ptl,
     if (RAND_bytes(iv, sizeof(iv)) <= 0)
         return false;
 
-    ctx = EVP_CIPHER_CTX_new();
-    if (!ctx)
+    ecc = EVP_CIPHER_CTX_new();
+    if (!ecc)
         return false;
 
-    if (EVP_EncryptInit_ex(ctx, cph, NULL, NULL, NULL) <= 0)
+    if (EVP_EncryptInit_ex(ecc, cph, NULL, NULL, NULL) <= 0)
         return false;
 
-    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN,
+    if (EVP_CIPHER_CTX_ctrl(ecc, EVP_CTRL_GCM_SET_IVLEN,
                             sizeof(iv), NULL) <= 0)
         return false;
 
-    if (EVP_EncryptInit_ex(ctx, NULL, NULL, ky->data, iv) <= 0)
+    if (EVP_EncryptInit_ex(ecc, NULL, NULL, ky->data, iv) <= 0)
         return false;
 
     if (prot) {
-        if (EVP_EncryptUpdate(ctx, NULL, &len, (uint8_t *) prot,
+        if (EVP_EncryptUpdate(ecc, NULL, &len, (uint8_t *) prot,
                               strlen(prot)) <= 0)
             return false;
     }
 
     if (aad) {
-        if (EVP_EncryptUpdate(ctx, NULL, &len, (uint8_t *) ".", 1) <= 0)
+        if (EVP_EncryptUpdate(ecc, NULL, &len, (uint8_t *) ".", 1) <= 0)
             return false;
 
-        if (EVP_EncryptUpdate(ctx, NULL, &len, (uint8_t *) aad,
+        if (EVP_EncryptUpdate(ecc, NULL, &len, (uint8_t *) aad,
                               strlen(aad)) <= 0)
             return false;
     }
 
-    if (EVP_EncryptUpdate(ctx, ct->data, &len, pt, ptl) <= 0)
+    if (EVP_EncryptUpdate(ecc, ct->data, &len, pt, ptl) <= 0)
         return false;
     ct->size = len;
 
-    if (EVP_EncryptFinal(ctx, &ct->data[len], &len) <= 0)
+    if (EVP_EncryptFinal(ecc, &ct->data[len], &len) <= 0)
         return false;
     ct->size += len;
 
-    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, sizeof(tg), tg) <= 0)
+    if (EVP_CIPHER_CTX_ctrl(ecc, EVP_CTRL_GCM_GET_TAG, sizeof(tg), tg) <= 0)
         return false;
 
     if (json_object_set_new(ivtgobj, "iv",
@@ -211,17 +211,17 @@ do_encrypt(const json_t *cek, const uint8_t pt[], size_t ptl,
 }
 
 static bool
-encrypt(json_t *jwe, const json_t *cek, const uint8_t pt[], size_t ptl,
-        const char *enc, const char *prot, const char *aad)
+encrypt(jose_ctx_t *ctx, json_t *jwe, const json_t *cek, const uint8_t pt[],
+        size_t ptl, const char *enc, const char *prot, const char *aad)
 {
-    return do_encrypt(cek, pt, ptl, enc, prot, aad, jwe, jwe, "ciphertext");
+    return do_encrypt(ctx, cek, pt, ptl, enc, prot, aad, jwe, jwe, "ciphertext");
 }
 
 static jose_buf_t *
-decrypt(const json_t *jwe, const json_t *cek, const char *enc,
+decrypt(jose_ctx_t *ctx, const json_t *jwe, const json_t *cek, const char *enc,
         const char *prot, const char *aad)
 {
-    openssl_auto(EVP_CIPHER_CTX) *ctx = NULL;
+    openssl_auto(EVP_CIPHER_CTX) *ecc = NULL;
     const EVP_CIPHER *cph = NULL;
     jose_buf_auto_t *ky = NULL;
     jose_buf_auto_t *iv = NULL;
@@ -251,37 +251,37 @@ decrypt(const json_t *jwe, const json_t *cek, const char *enc,
     if (!pt)
         return NULL;
 
-    ctx = EVP_CIPHER_CTX_new();
-    if (!ctx)
+    ecc = EVP_CIPHER_CTX_new();
+    if (!ecc)
         return NULL;
 
-    if (EVP_DecryptInit(ctx, cph, ky->data, iv->data) <= 0)
+    if (EVP_DecryptInit(ecc, cph, ky->data, iv->data) <= 0)
         return NULL;
 
     if (prot) {
-        if (EVP_DecryptUpdate(ctx, NULL, &len,
+        if (EVP_DecryptUpdate(ecc, NULL, &len,
                               (uint8_t *) prot, strlen(prot)) <= 0)
             return NULL;
     }
 
     if (aad) {
-        if (EVP_DecryptUpdate(ctx, NULL, &len, (uint8_t *) ".", 1) <= 0)
+        if (EVP_DecryptUpdate(ecc, NULL, &len, (uint8_t *) ".", 1) <= 0)
             return NULL;
 
-        if (EVP_DecryptUpdate(ctx, NULL, &len,
+        if (EVP_DecryptUpdate(ecc, NULL, &len,
                               (uint8_t *) aad, strlen(aad)) <= 0)
             return NULL;
     }
 
-    if (EVP_DecryptUpdate(ctx, pt->data, &len, ct->data, ct->size) <= 0)
+    if (EVP_DecryptUpdate(ecc, pt->data, &len, ct->data, ct->size) <= 0)
         return NULL;
     pt->size = len;
 
-    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG,
+    if (EVP_CIPHER_CTX_ctrl(ecc, EVP_CTRL_GCM_SET_TAG,
                             tg->size, tg->data) <= 0)
         return NULL;
 
-    if (EVP_DecryptFinal(ctx, &pt->data[len], &len) <= 0)
+    if (EVP_DecryptFinal(ecc, &pt->data[len], &len) <= 0)
         return NULL;
 
     pt->size += len;
@@ -289,13 +289,13 @@ decrypt(const json_t *jwe, const json_t *cek, const char *enc,
 }
 
 static bool
-wrap(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp,
+wrap(jose_ctx_t *ctx, json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp,
      const char *alg)
 {
     jose_buf_auto_t *pt = NULL;
     json_t *h = NULL;
 
-    if (!json_object_get(cek, "k") && !jose_jwk_generate(cek))
+    if (!json_object_get(cek, "k") && !jose_jwk_generate(ctx, cek))
         return false;
 
     switch (str2enum(alg, WRAP_NAMES, NULL)) {
@@ -317,13 +317,13 @@ wrap(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp,
     if (!json_is_object(h))
         return false;
 
-    return do_encrypt(jwk, pt->data, pt->size, alg,
+    return do_encrypt(ctx, jwk, pt->data, pt->size, alg,
                       "", NULL, h, rcp, "encrypted_key");
 }
 
 static bool
-unwrap(const json_t *jwe, const json_t *jwk, const json_t *rcp,
-       const char *alg, json_t *cek)
+unwrap(jose_ctx_t *ctx, const json_t *jwe, const json_t *jwk,
+       const json_t *rcp, const char *alg, json_t *cek)
 {
     jose_buf_auto_t *pt = NULL;
     json_auto_t *obj = NULL;
@@ -363,7 +363,7 @@ unwrap(const json_t *jwe, const json_t *jwk, const json_t *rcp,
     if (!obj)
         return false;
 
-    pt = decrypt(obj, jwk, alg, "", NULL);
+    pt = decrypt(ctx, obj, jwk, alg, "", NULL);
     if (!pt)
         return false;
 

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "ctx.h"
+
 #include <jansson.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -29,7 +31,8 @@
  * The sig parameter optionally contains a template to use for the signature.
  */
 bool
-jose_jws_sign(json_t *jws, const json_t *jwk, const json_t *sig);
+jose_jws_sign(jose_ctx_t *ctx, json_t *jws, const json_t *jwk,
+              const json_t *sig);
 
 /**
  * Verififes a signature in a JWS using the specified JWK.
@@ -39,7 +42,8 @@ jose_jws_sign(json_t *jws, const json_t *jwk, const json_t *sig);
  * signature verifies.
  */
 bool
-jose_jws_verify(const json_t *jws, const json_t *jwk, const json_t *sig);
+jose_jws_verify(jose_ctx_t *ctx, const json_t *jws, const json_t *jwk,
+                const json_t *sig);
 
 /**
  * Merges the protected and unprotected headers into the single JOSE header.

@@ -20,31 +20,31 @@
 #include <openssl/sha.h>
 
 static bool
-sha1(const uint8_t *in, size_t inl, uint8_t out[])
+sha1(jose_ctx_t *ctx, const uint8_t *in, size_t inl, uint8_t out[])
 {
     return SHA1(in, inl, out) != NULL;
 }
 
 static bool
-sha224(const uint8_t *in, size_t inl, uint8_t out[])
+sha224(jose_ctx_t *ctx, const uint8_t *in, size_t inl, uint8_t out[])
 {
     return SHA224(in, inl, out) != NULL;
 }
 
 static bool
-sha256(const uint8_t *in, size_t inl, uint8_t out[])
+sha256(jose_ctx_t *ctx, const uint8_t *in, size_t inl, uint8_t out[])
 {
     return SHA256(in, inl, out) != NULL;
 }
 
 static bool
-sha384(const uint8_t *in, size_t inl, uint8_t out[])
+sha384(jose_ctx_t *ctx, const uint8_t *in, size_t inl, uint8_t out[])
 {
     return SHA384(in, inl, out) != NULL;
 }
 
 static bool
-sha512(const uint8_t *in, size_t inl, uint8_t out[])
+sha512(jose_ctx_t *ctx, const uint8_t *in, size_t inl, uint8_t out[])
 {
     return SHA512(in, inl, out) != NULL;
 }

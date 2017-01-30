@@ -25,7 +25,7 @@
 #define NAMES "PBES2-HS256+A128KW", "PBES2-HS384+A192KW", "PBES2-HS512+A256KW"
 
 static const char *
-suggest(const json_t *jwk)
+suggest(jose_ctx_t *ctx, const json_t *jwk)
 {
     if (!json_is_string(jwk))
         return NULL;
@@ -34,7 +34,8 @@ suggest(const json_t *jwk)
 }
 
 static json_t *
-pbkdf2(const json_t *jwk, const char *alg, int iter, uint8_t st[], size_t stl)
+pbkdf2(jose_ctx_t *ctx, const json_t *jwk, const char *alg, int iter,
+       uint8_t st[], size_t stl)
 {
     jose_buf_auto_t *slt = NULL;
     jose_buf_auto_t *dk = NULL;
@@ -70,7 +71,7 @@ pbkdf2(const json_t *jwk, const char *alg, int iter, uint8_t st[], size_t stl)
 }
 
 static bool
-wrap(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp,
+wrap(jose_ctx_t *ctx, json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp,
      const char *alg)
 {
     json_auto_t *key = NULL;
@@ -81,7 +82,7 @@ wrap(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp,
     size_t stl = 0;
     int iter;
 
-    if (!json_object_get(cek, "k") && !jose_jwk_generate(cek))
+    if (!json_object_get(cek, "k") && !jose_jwk_generate(ctx, cek))
         return false;
 
     switch (str2enum(alg, NAMES, NULL)) {
@@ -121,21 +122,21 @@ wrap(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp,
     if (json_object_set_new(h, "p2s", jose_b64_encode_json(st, stl)) == -1)
         return false;
 
-    key = pbkdf2(jwk, alg, iter, st, stl);
+    key = pbkdf2(ctx, jwk, alg, iter, st, stl);
     if (!key)
         return false;
 
     for (jose_jwe_wrapper_t *w = jose_jwe_wrappers(); w; w = w->next) {
         if (strcmp(aes, w->alg) == 0)
-            return w->wrap(jwe, cek, key, rcp, aes);
+            return w->wrap(ctx, jwe, cek, key, rcp, aes);
     }
 
     return false;
 }
 
 static bool
-unwrap(const json_t *jwe, const json_t *jwk, const json_t *rcp,
-       const char *alg, json_t *cek)
+unwrap(jose_ctx_t *ctx, const json_t *jwe, const json_t *jwk,
+       const json_t *rcp, const char *alg, json_t *cek)
 {
     jose_buf_auto_t *st = NULL;
     json_auto_t *key = NULL;
@@ -162,13 +163,13 @@ unwrap(const json_t *jwe, const json_t *jwk, const json_t *rcp,
     if (!st || st->size < 8)
         return false;
 
-    key = pbkdf2(jwk, alg, p2c, st->data, st->size);
+    key = pbkdf2(ctx, jwk, alg, p2c, st->data, st->size);
     if (!key)
         return false;
 
     for (jose_jwe_wrapper_t *w = jose_jwe_wrappers(); w; w = w->next) {
         if (strcmp(aes, w->alg) == 0)
-            return w->unwrap(jwe, key, rcp, aes, cek);
+            return w->unwrap(ctx, jwe, key, rcp, aes, cek);
     }
 
     return false;

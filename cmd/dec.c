@@ -55,7 +55,7 @@ decrypt(const json_t *jwe, const json_t *cek, const char *to)
 {
     jose_buf_auto_t *pt = NULL;
 
-    pt = jose_jwe_decrypt(jwe, cek);
+    pt = jose_jwe_decrypt(NULL, jwe, cek);
     if (!pt) {
         fprintf(stderr, "Error during decryption!\n");
         return EXIT_FAILURE;
@@ -126,7 +126,7 @@ jcmd_dec(int argc, char *argv[])
     for (size_t i = 0; i < json_array_size(jwks); i++) {
         json_auto_t *cek = NULL;
 
-        cek = jose_jwe_unwrap(jwe, json_array_get(jwks, i), NULL);
+        cek = jose_jwe_unwrap(NULL, jwe, json_array_get(jwks, i), NULL);
         if (cek)
             return decrypt(jwe, cek, out);
     }
@@ -139,7 +139,7 @@ jcmd_dec(int argc, char *argv[])
             json_auto_t *jwk = json_string(pwd);
             json_auto_t *cek = NULL;
 
-            cek = jose_jwe_unwrap(jwe, jwk, NULL);
+            cek = jose_jwe_unwrap(NULL, jwe, jwk, NULL);
             if (cek)
                 return decrypt(jwe, cek, out);
         }

@@ -1,6 +1,6 @@
 /* vim: set tabstop=8 shiftwidth=4 softtabstop=4 expandtab smarttab colorcolumn=80: */
 /*
- * Copyright 2016 Red Hat, Inc.
+ * Copyright 2017 Red Hat, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,33 +17,22 @@
 
 #pragma once
 
-#include "ctx.h"
-
-#include <jansson.h>
 #include <stdbool.h>
-#include <stdint.h>
 
-bool
-jose_jwk_generate(jose_ctx_t *ctx, json_t *jwk);
+#if defined(__GNUC__) || defined(__clang__)
+#define jose_ctx_auto_t jose_ctx_t __attribute__((cleanup(jose_ctx_auto)))
+#endif
 
-bool
-jose_jwk_clean(jose_ctx_t *ctx, json_t *jwk);
+typedef struct jose_ctx jose_ctx_t;
 
-bool
-jose_jwk_allowed(const json_t *jwk, bool req, const char *op);
+jose_ctx_t *
+jose_ctx(void);
 
-char *
-jose_jwk_thumbprint(jose_ctx_t *ctx, const json_t *jwk, const char *hash);
+jose_ctx_t *
+jose_ctx_incref(jose_ctx_t *ctx);
 
-size_t
-jose_jwk_thumbprint_len(const char *hash);
+void
+jose_ctx_decref(jose_ctx_t *ctx);
 
-bool
-jose_jwk_thumbprint_buf(jose_ctx_t *ctx, const json_t *jwk, const char *hash,
-                        char enc[]);
-
-json_t *
-jose_jwk_thumbprint_json(jose_ctx_t *ctx, const json_t *jwk, const char *hash);
-
-json_t *
-jose_jwk_exchange(jose_ctx_t *ctx, const json_t *prv, const json_t *pub);
+void
+jose_ctx_auto(jose_ctx_t **ctx);

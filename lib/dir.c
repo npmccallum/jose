@@ -22,7 +22,7 @@
 #include <string.h>
 
 static const char *
-suggest(const json_t *jwk)
+suggest(jose_ctx_t *ctx, const json_t *jwk)
 {
     static const char *encs[] = {
         "A128CBC-HS256",
@@ -56,8 +56,8 @@ copy(json_t *to, const json_t *from)
 }
 
 static bool
-wrap(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp,
-     const char *alg)
+wrap(jose_ctx_t *ctx, json_t *jwe, json_t *cek, const json_t *jwk,
+     json_t *rcp, const char *alg)
 {
     if (!json_object_get(cek, "k") && !copy(cek, jwk))
         return false;
@@ -66,8 +66,8 @@ wrap(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp,
 }
 
 static bool
-unwrap(const json_t *jwe, const json_t *jwk, const json_t *rcp,
-       const char *alg, json_t *cek)
+unwrap(jose_ctx_t *ctx, const json_t *jwe, const json_t *jwk,
+       const json_t *rcp, const char *alg, json_t *cek)
 {
     return copy(cek, jwk);
 }

@@ -81,7 +81,7 @@ jcmd_thp(int argc, char *argv[])
         if (i > 0)
             thp[i * len - 1] = '\n';
 
-        if (!jose_jwk_thumbprint_buf(key, hsh, &thp[i * len])) {
+        if (!jose_jwk_thumbprint_buf(NULL, key, hsh, &thp[i * len])) {
             fprintf(stderr, "Error making thumbprint!\n");
             goto egress;
         }

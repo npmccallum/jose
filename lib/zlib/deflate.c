@@ -29,7 +29,7 @@ swap(jose_buf_t **a, jose_buf_t **b)
 }
 
 static jose_buf_t *
-comp_deflate(const uint8_t *buf, size_t len)
+comp_deflate(jose_ctx_t *ctx, const uint8_t *buf, size_t len)
 {
     z_stream __attribute__((cleanup(deflateEnd))) strm = {};
     jose_buf_auto_t *out = NULL;
@@ -66,7 +66,7 @@ comp_deflate(const uint8_t *buf, size_t len)
 }
 
 static jose_buf_t *
-comp_inflate(const uint8_t *buf, size_t len)
+comp_inflate(jose_ctx_t *ctx, const uint8_t *buf, size_t len)
 {
     z_stream __attribute__((cleanup(inflateEnd))) strm = {};
     jose_buf_auto_t *out = NULL;

@@ -29,7 +29,7 @@ declare_cleanup(EVP_MD_CTX)
 declare_cleanup(EVP_PKEY)
 
 static bool
-handles(json_t *jwk)
+handles(jose_ctx_t *ctx, json_t *jwk)
 {
     const char *alg = NULL;
 
@@ -40,7 +40,7 @@ handles(json_t *jwk)
 }
 
 static bool
-resolve(json_t *jwk)
+resolve(jose_ctx_t *ctx, json_t *jwk)
 {
     json_auto_t *upd = NULL;
     const char *alg = NULL;
@@ -66,7 +66,7 @@ resolve(json_t *jwk)
 }
 
 static const char *
-suggest(const json_t *jwk)
+suggest(jose_ctx_t *ctx, const json_t *jwk)
 {
     const char *kty = NULL;
     const char *n = NULL;
@@ -89,13 +89,13 @@ suggest(const json_t *jwk)
 }
 
 static bool
-sign(json_t *sig, const json_t *jwk,
+sign(jose_ctx_t *ctx, json_t *sig, const json_t *jwk,
      const char *alg, const char *prot, const char *payl)
 {
-    openssl_auto(EVP_MD_CTX) *ctx = NULL;
+    openssl_auto(EVP_MD_CTX) *emc = NULL;
     openssl_auto(EVP_PKEY) *key = NULL;
     jose_buf_auto_t *sg = NULL;
-    EVP_PKEY_CTX *pctx = NULL;
+    EVP_PKEY_CTX *epc = NULL;
     const EVP_MD *md = NULL;
     const RSA *rsa = NULL;
     size_t sgl = 0;
@@ -122,33 +122,33 @@ sign(json_t *sig, const json_t *jwk,
     if (RSA_size(rsa) < 2048 / 8)
         return false;
 
-    ctx = EVP_MD_CTX_new();
-    if (!ctx)
+    emc = EVP_MD_CTX_new();
+    if (!emc)
         return false;
 
-    if (EVP_DigestSignInit(ctx, &pctx, md, NULL, key) < 0)
+    if (EVP_DigestSignInit(emc, &epc, md, NULL, key) < 0)
         return false;
 
-    if (EVP_PKEY_CTX_set_rsa_padding(pctx, pad) < 0)
+    if (EVP_PKEY_CTX_set_rsa_padding(epc, pad) < 0)
         return false;
 
-    if (EVP_DigestSignUpdate(ctx, prot, strlen(prot)) < 0)
+    if (EVP_DigestSignUpdate(emc, prot, strlen(prot)) < 0)
         return false;
 
-    if (EVP_DigestSignUpdate(ctx, ".", 1) < 0)
+    if (EVP_DigestSignUpdate(emc, ".", 1) < 0)
         return false;
 
-    if (EVP_DigestSignUpdate(ctx, payl, strlen(payl)) < 0)
+    if (EVP_DigestSignUpdate(emc, payl, strlen(payl)) < 0)
         return false;
 
-    if (EVP_DigestSignFinal(ctx, NULL, &sgl) < 0)
+    if (EVP_DigestSignFinal(emc, NULL, &sgl) < 0)
         return false;
 
     sg = jose_buf(sgl, JOSE_BUF_FLAG_WIPE);
     if (!sg)
         return false;
 
-    if (EVP_DigestSignFinal(ctx, sg->data, &sg->size) < 0)
+    if (EVP_DigestSignFinal(emc, sg->data, &sg->size) < 0)
         return false;
 
     return json_object_set_new(sig, "signature",
@@ -156,13 +156,13 @@ sign(json_t *sig, const json_t *jwk,
 }
 
 static bool
-verify(const json_t *sig, const json_t *jwk,
+verify(jose_ctx_t *ctx, const json_t *sig, const json_t *jwk,
        const char *alg, const char *prot, const char *payl)
 {
-    openssl_auto(EVP_MD_CTX) *ctx = NULL;
+    openssl_auto(EVP_MD_CTX) *emc = NULL;
     openssl_auto(EVP_PKEY) *key = NULL;
     jose_buf_auto_t *sgn = NULL;
-    EVP_PKEY_CTX *pctx = NULL;
+    EVP_PKEY_CTX *epc = NULL;
     const EVP_MD *md = NULL;
     const RSA *rsa = NULL;
     int pad = 0;
@@ -192,26 +192,26 @@ verify(const json_t *sig, const json_t *jwk,
     if (!sgn)
         return false;
 
-    ctx = EVP_MD_CTX_new();
-    if (!ctx)
+    emc = EVP_MD_CTX_new();
+    if (!emc)
         return false;
 
-    if (EVP_DigestVerifyInit(ctx, &pctx, md, NULL, key) < 0)
+    if (EVP_DigestVerifyInit(emc, &epc, md, NULL, key) < 0)
         return false;
 
-    if (EVP_PKEY_CTX_set_rsa_padding(pctx, pad) < 0)
+    if (EVP_PKEY_CTX_set_rsa_padding(epc, pad) < 0)
         return false;
 
-    if (EVP_DigestVerifyUpdate(ctx, prot, strlen(prot)) < 0)
+    if (EVP_DigestVerifyUpdate(emc, prot, strlen(prot)) < 0)
         return false;
 
-    if (EVP_DigestVerifyUpdate(ctx, ".", 1) < 0)
+    if (EVP_DigestVerifyUpdate(emc, ".", 1) < 0)
         return false;
 
-    if (EVP_DigestVerifyUpdate(ctx, payl, strlen(payl)) < 0)
+    if (EVP_DigestVerifyUpdate(emc, payl, strlen(payl)) < 0)
         return false;
 
-    return EVP_DigestVerifyFinal(ctx, sgn->data, sgn->size) == 1;
+    return EVP_DigestVerifyFinal(emc, sgn->data, sgn->size) == 1;
 }
 
 static void __attribute__((constructor))

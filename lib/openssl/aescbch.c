@@ -35,49 +35,49 @@ mktag(const EVP_MD *md, const char *prot, const char *aad,
       const uint8_t ct[], size_t ctl,
       uint8_t tg[])
 {
-    openssl_auto(HMAC_CTX) *hctx = NULL;
+    openssl_auto(HMAC_CTX) *hmc = NULL;
     uint8_t hsh[EVP_MD_size(md)];
     bool ret = false;
     uint64_t al = 0;
 
-    hctx = HMAC_CTX_new();
-    if (!hctx)
+    hmc = HMAC_CTX_new();
+    if (!hmc)
         return false;
 
-    if (HMAC_Init_ex(hctx, ky, kyl, md, NULL) <= 0)
+    if (HMAC_Init_ex(hmc, ky, kyl, md, NULL) <= 0)
         return false;
 
     al += strlen(prot);
-    if (HMAC_Update(hctx, (uint8_t *) prot, strlen(prot)) <= 0)
+    if (HMAC_Update(hmc, (uint8_t *) prot, strlen(prot)) <= 0)
         return false;
 
     if (aad) {
         al++;
-        if (HMAC_Update(hctx, (uint8_t *) ".", 1) <= 0)
+        if (HMAC_Update(hmc, (uint8_t *) ".", 1) <= 0)
             return false;
 
         al += strlen(aad);
-        if (HMAC_Update(hctx, (uint8_t *) aad, strlen(aad)) <= 0)
+        if (HMAC_Update(hmc, (uint8_t *) aad, strlen(aad)) <= 0)
             return false;
     }
 
-    if (HMAC_Update(hctx, iv, ivl) <= 0)
+    if (HMAC_Update(hmc, iv, ivl) <= 0)
         return false;
 
-    if (HMAC_Update(hctx, ct, ctl) <= 0)
+    if (HMAC_Update(hmc, ct, ctl) <= 0)
         return false;
 
     al = htobe64(al * 8);
-    if (HMAC_Update(hctx, (uint8_t *) &al, sizeof(al)) <= 0)
+    if (HMAC_Update(hmc, (uint8_t *) &al, sizeof(al)) <= 0)
         return false;
 
-    ret = HMAC_Final(hctx, hsh, NULL) > 0;
+    ret = HMAC_Final(hmc, hsh, NULL) > 0;
     memcpy(tg, hsh, sizeof(hsh) / 2);
     return ret;
 }
 
 static bool
-handles(json_t *jwk)
+handles(jose_ctx_t *ctx, json_t *jwk)
 {
     const char *alg = NULL;
 
@@ -88,7 +88,7 @@ handles(json_t *jwk)
 }
 
 static bool
-resolve(json_t *jwk)
+resolve(jose_ctx_t *ctx, json_t *jwk)
 {
     json_auto_t *upd = NULL;
     const char *kty = NULL;
@@ -126,7 +126,7 @@ resolve(json_t *jwk)
 }
 
 static const char *
-suggest(const json_t *jwk)
+suggest(jose_ctx_t *ctx, const json_t *jwk)
 {
     const char *kty = NULL;
     const char *k = NULL;
@@ -153,10 +153,10 @@ suggest(const json_t *jwk)
 }
 
 static bool
-encrypt(json_t *jwe, const json_t *cek, const uint8_t pt[], size_t ptl,
-        const char *enc, const char *prot, const char *aad)
+encrypt(jose_ctx_t *ctx, json_t *jwe, const json_t *cek, const uint8_t pt[],
+        size_t ptl, const char *enc, const char *prot, const char *aad)
 {
-    openssl_auto(EVP_CIPHER_CTX) *ctx = NULL;
+    openssl_auto(EVP_CIPHER_CTX) *ecc = NULL;
     const EVP_CIPHER *cph = NULL;
     jose_buf_auto_t *ct = NULL;
     jose_buf_auto_t *ky = NULL;
@@ -187,18 +187,18 @@ encrypt(json_t *jwe, const json_t *cek, const uint8_t pt[], size_t ptl,
     if (RAND_bytes(iv, sizeof(iv)) <= 0)
         return false;
 
-    ctx = EVP_CIPHER_CTX_new();
-    if (!ctx)
+    ecc = EVP_CIPHER_CTX_new();
+    if (!ecc)
         return false;
 
-    if (EVP_EncryptInit(ctx, cph, &ky->data[ky->size / 2], iv) <= 0)
+    if (EVP_EncryptInit(ecc, cph, &ky->data[ky->size / 2], iv) <= 0)
         return false;
 
-    if (EVP_EncryptUpdate(ctx, ct->data, &len, pt, ptl) <= 0)
+    if (EVP_EncryptUpdate(ecc, ct->data, &len, pt, ptl) <= 0)
         return false;
     ct->size = len;
 
-    if (EVP_EncryptFinal(ctx, &ct->data[ct->size], &len) <= 0)
+    if (EVP_EncryptFinal(ecc, &ct->data[ct->size], &len) <= 0)
         return false;
     ct->size += len;
 
@@ -222,10 +222,10 @@ encrypt(json_t *jwe, const json_t *cek, const uint8_t pt[], size_t ptl,
 }
 
 static jose_buf_t *
-decrypt(const json_t *jwe, const json_t *cek, const char *enc,
+decrypt(jose_ctx_t *ctx, const json_t *jwe, const json_t *cek, const char *enc,
         const char *prot, const char *aad)
 {
-    openssl_auto(EVP_CIPHER_CTX) *ctx = NULL;
+    openssl_auto(EVP_CIPHER_CTX) *ecc = NULL;
     const EVP_CIPHER *cph = NULL;
     jose_buf_auto_t *ky = NULL;
     jose_buf_auto_t *iv = NULL;
@@ -272,18 +272,18 @@ decrypt(const json_t *jwe, const json_t *cek, const char *enc,
     if (!pt)
         return NULL;
 
-    ctx = EVP_CIPHER_CTX_new();
-    if (!ctx)
+    ecc = EVP_CIPHER_CTX_new();
+    if (!ecc)
         return NULL;
 
-    if (EVP_DecryptInit(ctx, cph, &ky->data[ky->size / 2], iv->data) <= 0)
+    if (EVP_DecryptInit(ecc, cph, &ky->data[ky->size / 2], iv->data) <= 0)
         return NULL;
 
-    if (EVP_DecryptUpdate(ctx, pt->data, &len, ct->data, ct->size) <= 0)
+    if (EVP_DecryptUpdate(ecc, pt->data, &len, ct->data, ct->size) <= 0)
         return NULL;
     pt->size = len;
 
-    vfy = EVP_DecryptFinal(ctx, &pt->data[len], &len) > 0;
+    vfy = EVP_DecryptFinal(ecc, &pt->data[len], &len) > 0;
     pt->size += len;
     return vfy ? jose_buf_incref(pt) : NULL;
 }

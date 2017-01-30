@@ -7,7 +7,7 @@ pkgconfigdir = $(libdir)/pkgconfig
 
 TESTS =
 
-inc_HEADERS = jose/buf.h jose/b64.h jose/jwk.h jose/jws.h jose/jwe.h jose/jose.h jose/hooks.h
+inc_HEADERS = jose/buf.h jose/b64.h jose/ctx.h jose/jwk.h jose/jws.h jose/jwe.h jose/jose.h jose/hooks.h
 pkgconfig_DATA = jose.pc
 lib_LTLIBRARIES = libjose.la
 libjose_la_LIBADD = @jansson_LIBS@
@@ -17,6 +17,7 @@ libjose_la_SOURCES = \
     lib/buf.c \
     lib/b64.c \
     lib/hooks.c \
+    lib/ctx.c \
     lib/jwk.c \
     lib/jws.c \
     lib/jwe.c \

@@ -119,7 +119,7 @@ jcmd_sig(int argc, char *argv[])
         return EXIT_FAILURE;
 
     for (size_t i = 0; i < json_array_size(jwks); i++) {
-        if (!jose_jws_sign(tmpl, json_array_get(jwks, i),
+        if (!jose_jws_sign(NULL, tmpl, json_array_get(jwks, i),
                            json_array_get(sigs, i))) {
             fprintf(stderr, "Error creating signature!\n");
             return EXIT_FAILURE;

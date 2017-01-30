@@ -62,7 +62,7 @@ jcmd_gen(int argc, char *argv[])
     }
 
     for (size_t i = 0; i < json_array_size(jwks); i++) {
-        if (!jose_jwk_generate(json_array_get(jwks, i))) {
+        if (!jose_jwk_generate(NULL, json_array_get(jwks, i))) {
             fprintf(stderr, "JWK generation failed for %s!\n", argv[i]);
             goto usage;
         }

@@ -31,7 +31,7 @@ declare_cleanup(EC_KEY)
 declare_cleanup(BN_CTX)
 
 static json_t *
-exchange(const json_t *prv, const json_t *pub)
+exchange(jose_ctx_t *ctx, const json_t *prv, const json_t *pub)
 {
     openssl_auto(EC_KEY) *lcl = NULL;
     openssl_auto(EC_KEY) *rem = NULL;
@@ -131,7 +131,7 @@ concatkdf(const EVP_MD *md, uint8_t dk[], size_t dkl,
 }
 
 static bool
-handles(json_t *jwk)
+handles(jose_ctx_t *ctx, json_t *jwk)
 {
     const char *alg = NULL;
 
@@ -142,7 +142,7 @@ handles(json_t *jwk)
 }
 
 static bool
-resolve(json_t *jwk)
+resolve(jose_ctx_t *ctx, json_t *jwk)
 {
     const char *alg = NULL;
     const char *crv = NULL;
@@ -181,7 +181,7 @@ resolve(json_t *jwk)
 }
 
 static const char *
-suggest(const json_t *jwk)
+suggest(jose_ctx_t *ctx, const json_t *jwk)
 {
     const char *kty = NULL;
     const char *crv = NULL;
@@ -202,8 +202,8 @@ suggest(const json_t *jwk)
 }
 
 static bool
-wrap(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp,
-     const char *alg)
+wrap(jose_ctx_t *ctx, json_t *jwe, json_t *cek, const json_t *jwk,
+     json_t *rcp, const char *alg)
 {
     jose_buf_auto_t *ky = NULL;
     jose_buf_auto_t *pu = NULL;
@@ -221,7 +221,7 @@ wrap(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp,
     if (json_object_get(cek, "k")) {
         if (strcmp(alg, "ECDH-ES") == 0)
             return false;
-    } else if (!jose_jwk_generate(cek)) {
+    } else if (!jose_jwk_generate(ctx, cek)) {
         return false;
     }
 
@@ -258,14 +258,14 @@ wrap(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp,
     if (json_object_set_new(h, "epk", epk) == -1)
         return false;
 
-    if (!jose_jwk_generate(epk))
+    if (!jose_jwk_generate(ctx, epk))
         return false;
 
-    tmp = exchange(epk, jwk);
+    tmp = exchange(ctx, epk, jwk);
     if (!tmp)
         return false;
 
-    if (!jose_jwk_clean(epk))
+    if (!jose_jwk_clean(ctx, epk))
         return false;
 
     ky = jose_b64_decode_json(json_object_get(tmp, "x"));
@@ -294,7 +294,7 @@ wrap(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp,
     if (aes) {
         for (jose_jwe_wrapper_t *w = jose_jwe_wrappers(); w; w = w->next) {
             if (strcmp(aes, w->alg) == 0)
-                return w->wrap(jwe, cek, tmp, rcp, aes);
+                return w->wrap(ctx, jwe, cek, tmp, rcp, aes);
         }
 
         return false;
@@ -304,7 +304,7 @@ wrap(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp,
 }
 
 static jose_buf_t *
-get_dk(const json_t *jwe, const json_t *rcp)
+get_dk(jose_ctx_t *ctx, const json_t *jwe, const json_t *rcp)
 {
     json_auto_t *head = NULL;
     json_auto_t *jwk = NULL;
@@ -321,7 +321,7 @@ get_dk(const json_t *jwe, const json_t *rcp)
     if (!jwk)
         return NULL;
 
-    if (!jose_jwk_generate(jwk))
+    if (!jose_jwk_generate(ctx, jwk))
         return NULL;
 
     if (!json_is_string(json_object_get(jwk, "k")))
@@ -331,8 +331,8 @@ get_dk(const json_t *jwe, const json_t *rcp)
 }
 
 static bool
-unwrap(const json_t *jwe, const json_t *jwk, const json_t *rcp,
-       const char *alg, json_t *cek)
+unwrap(jose_ctx_t *ctx, const json_t *jwe, const json_t *jwk,
+       const json_t *rcp, const char *alg, json_t *cek)
 {
     jose_buf_auto_t *ky = NULL;
     jose_buf_auto_t *pu = NULL;
@@ -347,7 +347,7 @@ unwrap(const json_t *jwe, const json_t *jwk, const json_t *rcp,
     json_t *epk = NULL;
 
     switch (str2enum(alg, NAMES, NULL)) {
-    case 0: dk = get_dk(jwe, rcp);  break;
+    case 0: dk = get_dk(ctx, jwe, rcp);  break;
     case 1: dk = jose_buf(16, JOSE_BUF_FLAG_WIPE); aes = "A128KW"; break;
     case 2: dk = jose_buf(24, JOSE_BUF_FLAG_WIPE); aes = "A192KW"; break;
     case 3: dk = jose_buf(32, JOSE_BUF_FLAG_WIPE); aes = "A256KW"; break;
@@ -371,7 +371,7 @@ unwrap(const json_t *jwe, const json_t *jwk, const json_t *rcp,
 
     /* If the JWK has a private key, perform the normal exchange. */
     if (json_object_get(jwk, "d"))
-        tmp = exchange(jwk, epk);
+        tmp = exchange(ctx, jwk, epk);
 
     /* Otherwise, allow external exchanges. */
     else if (json_equal(json_object_get(jwk, "crv"),
@@ -399,7 +399,7 @@ unwrap(const json_t *jwe, const json_t *jwk, const json_t *rcp,
     if (aes) {
         for (jose_jwe_wrapper_t *w = jose_jwe_wrappers(); w; w = w->next) {
             if (strcmp(aes, w->alg) == 0)
-                return w->unwrap(jwe, tmp, rcp, aes, cek);
+                return w->unwrap(ctx, jwe, tmp, rcp, aes, cek);
         }
 
         return false;

@@ -55,7 +55,7 @@ hmac(const EVP_MD *md, const jose_buf_t *key, uint8_t hsh[], ...)
 }
 
 static bool
-handles(json_t *jwk)
+handles(jose_ctx_t *ctx, json_t *jwk)
 {
     const char *alg = NULL;
 
@@ -66,7 +66,7 @@ handles(json_t *jwk)
 }
 
 static bool
-resolve(json_t *jwk)
+resolve(jose_ctx_t *ctx, json_t *jwk)
 {
     json_auto_t *upd = NULL;
     const char *kty = NULL;
@@ -104,7 +104,7 @@ resolve(json_t *jwk)
 }
 
 static const char *
-suggest(const json_t *jwk)
+suggest(jose_ctx_t *ctx, const json_t *jwk)
 {
     const char *kty = NULL;
     const char *k = NULL;
@@ -131,7 +131,7 @@ suggest(const json_t *jwk)
 }
 
 static bool
-sign(json_t *sig, const json_t *jwk,
+sign(jose_ctx_t *ctx, json_t *sig, const json_t *jwk,
      const char *alg, const char *prot, const char *payl)
 {
     jose_buf_auto_t *key = NULL;
@@ -158,7 +158,7 @@ sign(json_t *sig, const json_t *jwk,
 }
 
 static bool
-verify(const json_t *sig, const json_t *jwk,
+verify(jose_ctx_t *ctx, const json_t *sig, const json_t *jwk,
        const char *alg, const char *prot, const char *payl)
 {
     jose_buf_auto_t *key = NULL;

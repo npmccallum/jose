@@ -59,7 +59,7 @@ find_zipper(const char *zip)
 }
 
 bool
-jose_jwe_encrypt(json_t *jwe, const json_t *cek,
+jose_jwe_encrypt(jose_ctx_t *ctx, json_t *jwe, const json_t *cek,
                  const uint8_t pt[], size_t ptl)
 {
     const jose_jwe_crypter_t *crypter = NULL;
@@ -101,7 +101,7 @@ jose_jwe_encrypt(json_t *jwe, const json_t *cek,
         senc = kalg;
 
         for (crypter = jose_jwe_crypters(); crypter && !senc; crypter = crypter->next)
-            senc = crypter->suggest(cek);
+            senc = crypter->suggest(ctx, cek);
 
         if (!senc || !set_protected_new(jwe, "enc", json_string(senc)))
             return false;
@@ -115,7 +115,7 @@ jose_jwe_encrypt(json_t *jwe, const json_t *cek,
         if (!zipper)
             return false;
 
-        zpt = zipper->deflate(pt, ptl);
+        zpt = zipper->deflate(ctx, pt, ptl);
         if (!zpt)
             return false;
     }
@@ -128,7 +128,7 @@ jose_jwe_encrypt(json_t *jwe, const json_t *cek,
     if (!prot)
         return false;
 
-    return crypter->encrypt(jwe, cek,
+    return crypter->encrypt(ctx, jwe, cek,
                             zpt ? zpt->data : pt,
                             zpt ? zpt->size : ptl,
                             penc ? penc : senc,
@@ -136,7 +136,8 @@ jose_jwe_encrypt(json_t *jwe, const json_t *cek,
 }
 
 bool
-jose_jwe_encrypt_json(json_t *jwe, const json_t *cek, json_t *pt)
+jose_jwe_encrypt_json(jose_ctx_t *ctx, json_t *jwe, const json_t *cek,
+                      json_t *pt)
 {
     char *ept = NULL;
     bool ret = false;
@@ -145,14 +146,15 @@ jose_jwe_encrypt_json(json_t *jwe, const json_t *cek, json_t *pt)
     if (!ept)
         return NULL;
 
-    ret = jose_jwe_encrypt(jwe, cek, (uint8_t *) ept, strlen(ept));
+    ret = jose_jwe_encrypt(ctx, jwe, cek, (uint8_t *) ept, strlen(ept));
     memset(ept, 0, strlen(ept));
     free(ept);
     return ret;
 }
 
 bool
-jose_jwe_wrap(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp)
+jose_jwe_wrap(jose_ctx_t *ctx, json_t *jwe, json_t *cek, const json_t *jwk,
+              json_t *rcp)
 {
     const jose_jwe_wrapper_t *wrapper = NULL;
     const char *kalg = NULL;
@@ -204,7 +206,7 @@ jose_jwe_wrap(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp)
 
         halg = kalg;
         for (const jose_jwe_wrapper_t *s = jose_jwe_wrappers(); s && !halg; s = s->next)
-            halg = s->suggest(jwk);
+            halg = s->suggest(ctx, jwk);
 
         if (!halg)
             return false;
@@ -224,14 +226,15 @@ jose_jwe_wrap(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp)
     if (!wrapper)
         return false;
 
-    if (!wrapper->wrap(jwe, cek, jwk, r, halg))
+    if (!wrapper->wrap(ctx, jwe, cek, jwk, r, halg))
         return false;
 
     return add_entity(jwe, r, "recipients", "header", "encrypted_key", NULL);
 }
 
 json_t *
-jose_jwe_unwrap(const json_t *jwe, const json_t *jwk, const json_t *rcp)
+jose_jwe_unwrap(jose_ctx_t *ctx, const json_t *jwe, const json_t *jwk,
+                const json_t *rcp)
 {
     const jose_jwe_wrapper_t *wrapper = NULL;
     const char *halg = NULL;
@@ -246,9 +249,9 @@ jose_jwe_unwrap(const json_t *jwe, const json_t *jwk, const json_t *rcp)
         rcps = json_object_get(jwe, "recipients");
         if (json_is_array(rcps)) {
             for (size_t i = 0; i < json_array_size(rcps) && !cek; i++)
-                cek = jose_jwe_unwrap(jwe, jwk, json_array_get(rcps, i));
+                cek = jose_jwe_unwrap(ctx, jwe, jwk, json_array_get(rcps, i));
         } else if (!rcps) {
-            cek = jose_jwe_unwrap(jwe, jwk, jwe);
+            cek = jose_jwe_unwrap(ctx, jwe, jwk, jwe);
         }
 
         return json_incref(cek);
@@ -282,14 +285,14 @@ jose_jwe_unwrap(const json_t *jwe, const json_t *jwk, const json_t *rcp)
     if (!cek)
         return NULL;
 
-    if (!wrapper->unwrap(jwe, jwk, rcp, halg, cek))
+    if (!wrapper->unwrap(ctx, jwe, jwk, rcp, halg, cek))
         return NULL;
 
     return json_incref(cek);
 }
 
 jose_buf_t *
-jose_jwe_decrypt(const json_t *jwe, const json_t *cek)
+jose_jwe_decrypt(jose_ctx_t *ctx, const json_t *jwe, const json_t *cek)
 {
     const jose_jwe_crypter_t *crypter = NULL;
     const jose_jwe_zipper_t *zipper = NULL;
@@ -336,11 +339,11 @@ jose_jwe_decrypt(const json_t *jwe, const json_t *cek)
     if (!crypter)
         return NULL;
 
-    pt = crypter->decrypt(jwe, cek, enc, prot ? prot : "", aad);
+    pt = crypter->decrypt(ctx, jwe, cek, enc, prot ? prot : "", aad);
 
     if (pt && zipper) {
         jose_buf_auto_t *tmp = NULL;
-        tmp = zipper->inflate(pt->data, pt->size);
+        tmp = zipper->inflate(ctx, pt->data, pt->size);
         jose_buf_decref(pt);
         pt = jose_buf_incref(tmp);
     }
@@ -349,7 +352,7 @@ jose_jwe_decrypt(const json_t *jwe, const json_t *cek)
 }
 
 json_t *
-jose_jwe_decrypt_json(const json_t *jwe, const json_t *cek)
+jose_jwe_decrypt_json(jose_ctx_t *ctx, const json_t *jwe, const json_t *cek)
 {
     jose_buf_auto_t *pt = NULL;
     json_t *ct = NULL;
@@ -358,7 +361,7 @@ jose_jwe_decrypt_json(const json_t *jwe, const json_t *cek)
     if (!json_is_string(ct))
         return NULL;
 
-    pt = jose_jwe_decrypt(jwe, cek);
+    pt = jose_jwe_decrypt(ctx, jwe, cek);
     if (!pt)
         return NULL;
 

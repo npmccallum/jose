@@ -37,7 +37,8 @@ find(const char *alg)
 }
 
 bool
-jose_jws_sign(json_t *jws, const json_t *jwk, const json_t *sig)
+jose_jws_sign(jose_ctx_t *ctx, json_t *jws, const json_t *jwk,
+              const json_t *sig)
 {
     const jose_jws_signer_t *signer = NULL;
     const char *payl = NULL;
@@ -74,7 +75,7 @@ jose_jws_sign(json_t *jws, const json_t *jwk, const json_t *sig)
         json_unpack(s, "{s:{s:s}}", "header", "alg", &alg) == -1) {
         alg = kalg;
         for (signer = jose_jws_signers(); signer && !alg; signer = signer->next)
-            alg = signer->suggest(jwk);
+            alg = signer->suggest(ctx, jwk);
 
         if (!set_protected_new(s, "alg", json_string(alg)))
             return false;
@@ -94,7 +95,7 @@ jose_jws_sign(json_t *jws, const json_t *jwk, const json_t *sig)
     if (!signer)
         return false;
 
-    if (signer->sign(s, jwk, alg, prot, payl))
+    if (signer->sign(ctx, s, jwk, alg, prot, payl))
         return add_entity(jws, s, "signatures", "signature", "protected",
                          "header", NULL);
 
@@ -102,7 +103,8 @@ jose_jws_sign(json_t *jws, const json_t *jwk, const json_t *sig)
 }
 
 bool
-jose_jws_verify(const json_t *jws, const json_t *jwk, const json_t *sig)
+jose_jws_verify(jose_ctx_t *ctx, const json_t *jws, const json_t *jwk,
+                const json_t *sig)
 {
     const jose_jws_signer_t *signer = NULL;
     const char *prot = NULL;
@@ -116,10 +118,10 @@ jose_jws_verify(const json_t *jws, const json_t *jwk, const json_t *sig)
 
         array = json_object_get(jws, "signatures");
         if (!json_is_array(array))
-            return jose_jws_verify(jws, jwk, jws);
+            return jose_jws_verify(ctx, jws, jwk, jws);
 
         for (size_t i = 0; i < json_array_size(array); i++) {
-            if (jose_jws_verify(jws, jwk, json_array_get(array, i)))
+            if (jose_jws_verify(ctx, jws, jwk, json_array_get(array, i)))
                 return true;
         }
 
@@ -156,7 +158,7 @@ jose_jws_verify(const json_t *jws, const json_t *jwk, const json_t *sig)
     if (!signer)
         return false;
 
-    return signer->verify(sig, jwk, halg, prot ? prot : "", payl);
+    return signer->verify(ctx, sig, jwk, halg, prot ? prot : "", payl);
 }
 
 json_t *

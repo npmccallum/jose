@@ -36,37 +36,37 @@ typedef struct jose_jwk_op {
 
 typedef struct jose_jwk_resolver {
     struct jose_jwk_resolver *next;
-    bool (*handles)(json_t *jwk);
-    bool (*resolve)(json_t *jwk);
+    bool (*handles)(jose_ctx_t *ctx, json_t *jwk);
+    bool (*resolve)(jose_ctx_t *ctx, json_t *jwk);
 } jose_jwk_resolver_t;
 
 typedef struct jose_jwk_generator {
     struct jose_jwk_generator *next;
     const char *kty;
-    bool (*handles)(json_t *jwk);
-    bool (*generate)(json_t *jwk);
+    bool (*handles)(jose_ctx_t *ctx, json_t *jwk);
+    bool (*generate)(jose_ctx_t *ctx, json_t *jwk);
 } jose_jwk_generator_t;
 
 typedef struct jose_jwk_hasher {
     struct jose_jwk_hasher *next;
     const char *name;
     size_t size;
-    bool (*hash)(const uint8_t in[], size_t inl, uint8_t out[]);
+    bool (*hash)(jose_ctx_t *ctx, const uint8_t in[], size_t inl, uint8_t out[]);
 } jose_jwk_hasher_t;
 
 typedef struct jose_jwk_exchanger {
     struct jose_jwk_exchanger *next;
-    json_t *(*exchange)(const json_t *prv, const json_t *pub);
+    json_t *(*exchange)(jose_ctx_t *ctx, const json_t *prv, const json_t *pub);
 } jose_jwk_exchanger_t;
 
 typedef struct jose_jws_signer {
     struct jose_jws_signer *next;
 
     const char *alg;
-    const char *(*suggest)(const json_t *jwk);
-    bool (*sign)(json_t *sig, const json_t *jwk,
+    const char *(*suggest)(jose_ctx_t *ctx, const json_t *jwk);
+    bool (*sign)(jose_ctx_t *ctx, json_t *sig, const json_t *jwk,
                  const char *alg, const char *prot, const char *payl);
-    bool (*verify)(const json_t *sig, const json_t *jwk,
+    bool (*verify)(jose_ctx_t *ctx, const json_t *sig, const json_t *jwk,
                    const char *alg, const char *prot, const char *payl);
 } jose_jws_signer_t;
 
@@ -75,15 +75,16 @@ typedef struct jose_jwe_crypter {
     const char *enc;
 
     const char *
-    (*suggest)(const json_t *jwk);
+    (*suggest)(jose_ctx_t *ctx, const json_t *jwk);
 
     bool
-    (*encrypt)(json_t *jwe, const json_t *cek, const uint8_t pt[], size_t ptl,
-               const char *enc, const char *prot, const char *aad);
+    (*encrypt)(jose_ctx_t *ctx, json_t *jwe, const json_t *cek,
+               const uint8_t pt[], size_t ptl, const char *enc,
+               const char *prot, const char *aad);
 
     jose_buf_t *
-    (*decrypt)(const json_t *jwe, const json_t *cek, const char *enc,
-               const char *prot, const char *aad);
+    (*decrypt)(jose_ctx_t *ctx, const json_t *jwe, const json_t *cek,
+               const char *enc, const char *prot, const char *aad);
 } jose_jwe_crypter_t;
 
 typedef struct jose_jwe_wrapper {
@@ -91,14 +92,15 @@ typedef struct jose_jwe_wrapper {
     const char *alg;
 
     const char *
-    (*suggest)(const json_t *jwk);
+    (*suggest)(jose_ctx_t *ctx, const json_t *jwk);
 
     bool
-    (*wrap)(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp,
-            const char *alg);
+    (*wrap)(jose_ctx_t *ctx, json_t *jwe, json_t *cek, const json_t *jwk,
+            json_t *rcp, const char *alg);
+
     bool
-    (*unwrap)(const json_t *jwe, const json_t *jwk, const json_t *rcp,
-              const char *alg, json_t *cek);
+    (*unwrap)(jose_ctx_t *ctx, const json_t *jwe, const json_t *jwk,
+              const json_t *rcp, const char *alg, json_t *cek);
 } jose_jwe_wrapper_t;
 
 typedef struct jose_jwe_zipper {
@@ -106,10 +108,10 @@ typedef struct jose_jwe_zipper {
     const char *zip;
 
     jose_buf_t *
-    (*deflate)(const uint8_t val[], size_t len);
+    (*deflate)(jose_ctx_t *ctx, const uint8_t val[], size_t len);
 
     jose_buf_t *
-    (*inflate)(const uint8_t val[], size_t len);
+    (*inflate)(jose_ctx_t *ctx, const uint8_t val[], size_t len);
 } jose_jwe_zipper_t;
 
 void

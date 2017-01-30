@@ -22,7 +22,7 @@
 #include <openssl/rand.h>
 
 static bool
-handles(json_t *jwk)
+handles(jose_ctx_t *ctx, json_t *jwk)
 {
     const char *kty = NULL;
 
@@ -33,7 +33,7 @@ handles(json_t *jwk)
 }
 
 static bool
-generate(json_t *jwk)
+generate(jose_ctx_t *ctx, json_t *jwk)
 {
     jose_buf_auto_t *buf = NULL;
     json_int_t len = 0;

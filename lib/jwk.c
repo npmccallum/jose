@@ -23,17 +23,16 @@
 #include <stdlib.h>
 #include <string.h>
 
-
 bool
-jose_jwk_generate(json_t *jwk)
+jose_jwk_generate(jose_ctx_t *ctx, json_t *jwk)
 {
     jose_jwk_type_t *type = NULL;
     const char *kty = NULL;
 
     for (jose_jwk_resolver_t *r = jose_jwk_resolvers(); r; r = r->next) {
-        if (!r->handles(jwk))
+        if (!r->handles(ctx, jwk))
             continue;
-        if (!r->resolve(jwk))
+        if (!r->resolve(ctx, jwk))
             return false;
     }
 
@@ -47,10 +46,10 @@ jose_jwk_generate(json_t *jwk)
         return false;
 
     for (jose_jwk_generator_t *g = jose_jwk_generators(); g; g = g->next) {
-        if (!g->handles(jwk))
+        if (!g->handles(ctx, jwk))
             continue;
 
-        if (!g->generate(jwk))
+        if (!g->generate(ctx, jwk))
             return false;
 
         for (size_t i = 0; type->req[i]; i++) {
@@ -65,7 +64,7 @@ jose_jwk_generate(json_t *jwk)
 }
 
 static bool
-jwk_clean(json_t *jwk)
+jwk_clean(jose_ctx_t *ctx, json_t *jwk)
 {
     jose_jwk_type_t *type = NULL;
     const char *kty = NULL;
@@ -116,7 +115,7 @@ jwk_clean(json_t *jwk)
 }
 
 bool
-jose_jwk_clean(json_t *jwk)
+jose_jwk_clean(jose_ctx_t *ctx, json_t *jwk)
 {
     json_t *keys = NULL;
 
@@ -126,10 +125,10 @@ jose_jwk_clean(json_t *jwk)
         keys = json_object_get(jwk, "keys");
 
     if (!keys)
-        return jwk_clean(jwk);
+        return jwk_clean(ctx, jwk);
 
     for (size_t i = 0; i < json_array_size(keys); i++) {
-        if (!jwk_clean(json_array_get(keys, i)))
+        if (!jwk_clean(ctx, json_array_get(keys, i)))
             return false;
     }
 
@@ -177,7 +176,7 @@ jose_jwk_allowed(const json_t *jwk, bool req, const char *op)
 }
 
 char *
-jose_jwk_thumbprint(const json_t *jwk, const char *hash)
+jose_jwk_thumbprint(jose_ctx_t *ctx, const json_t *jwk, const char *hash)
 {
     char *out = NULL;
     size_t len = 0;
@@ -190,7 +189,7 @@ jose_jwk_thumbprint(const json_t *jwk, const char *hash)
     if (!out)
         return NULL;
 
-    if (!jose_jwk_thumbprint_buf(jwk, hash, out)) {
+    if (!jose_jwk_thumbprint_buf(ctx, jwk, hash, out)) {
         free(out);
         return NULL;
     }
@@ -215,7 +214,8 @@ jose_jwk_thumbprint_len(const char *hash)
 }
 
 bool
-jose_jwk_thumbprint_buf(const json_t *jwk, const char *hash, char enc[])
+jose_jwk_thumbprint_buf(jose_ctx_t *ctx, const json_t *jwk, const char *hash,
+                        char enc[])
 {
     jose_jwk_hasher_t *hasher = NULL;
     jose_jwk_type_t *type = NULL;
@@ -263,7 +263,7 @@ jose_jwk_thumbprint_buf(const json_t *jwk, const char *hash, char enc[])
     if (!str)
         goto egress;
 
-    ret = hasher->hash((uint8_t *) str, strlen(str), buf);
+    ret = hasher->hash(ctx, (uint8_t *) str, strlen(str), buf);
     if (ret)
         jose_b64_encode_buf(buf, sizeof(buf), enc);
 
@@ -274,12 +274,12 @@ egress:
 }
 
 json_t *
-jose_jwk_thumbprint_json(const json_t *jwk, const char *hash)
+jose_jwk_thumbprint_json(jose_ctx_t *ctx, const json_t *jwk, const char *hash)
 {
     json_t *ret = NULL;
     char *thp = NULL;
 
-    thp = jose_jwk_thumbprint(jwk, hash);
+    thp = jose_jwk_thumbprint(ctx, jwk, hash);
     if (thp)
         ret = json_string(thp);
 
@@ -324,7 +324,7 @@ constructor(void)
 }
 
 json_t *
-jose_jwk_exchange(const json_t *prv, const json_t *pub)
+jose_jwk_exchange(jose_ctx_t *ctx, const json_t *prv, const json_t *pub)
 {
     if (!jose_jwk_allowed(prv, false, "deriveKey") &&
         !jose_jwk_allowed(prv, false, "deriveBits"))
@@ -337,7 +337,7 @@ jose_jwk_exchange(const json_t *prv, const json_t *pub)
     for (jose_jwk_exchanger_t *e = jose_jwk_exchangers(); e; e = e->next) {
         json_t *key = NULL;
 
-        key = e->exchange(prv, pub);
+        key = e->exchange(ctx, prv, pub);
         if (key)
             return key;
     }

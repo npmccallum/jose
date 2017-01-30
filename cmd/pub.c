@@ -55,7 +55,7 @@ jcmd_pub(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    if (!jose_jwk_clean(jwk)) {
+    if (!jose_jwk_clean(NULL, jwk)) {
         fprintf(stderr, "Error removing public keys!\n");
         return EXIT_FAILURE;
     }

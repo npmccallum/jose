@@ -27,7 +27,7 @@
 declare_cleanup(EVP_CIPHER_CTX)
 
 static bool
-handles(json_t *jwk)
+handles(jose_ctx_t *ctx, json_t *jwk)
 {
     const char *alg = NULL;
 
@@ -38,7 +38,7 @@ handles(json_t *jwk)
 }
 
 static bool
-resolve(json_t *jwk)
+resolve(jose_ctx_t *ctx, json_t *jwk)
 {
     json_auto_t *upd = NULL;
     const char *kty = NULL;
@@ -76,7 +76,7 @@ resolve(json_t *jwk)
 }
 
 static const char *
-suggest(const json_t *jwk)
+suggest(jose_ctx_t *ctx, const json_t *jwk)
 {
     const char *kty = NULL;
     const char *k = NULL;
@@ -96,17 +96,17 @@ suggest(const json_t *jwk)
 }
 
 static bool
-wrap(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp,
+wrap(jose_ctx_t *ctx, json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp,
      const char *alg)
 {
-    openssl_auto(EVP_CIPHER_CTX) *ctx = NULL;
+    openssl_auto(EVP_CIPHER_CTX) *ecc = NULL;
     const EVP_CIPHER *cph = NULL;
     jose_buf_auto_t *ky = NULL;
     jose_buf_auto_t *pt = NULL;
     jose_buf_auto_t *ct = NULL;
     int tmp;
 
-    if (!json_object_get(cek, "k") && !jose_jwk_generate(cek))
+    if (!json_object_get(cek, "k") && !jose_jwk_generate(ctx, cek))
         return false;
 
     switch (str2enum(alg, NAMES, NULL)) {
@@ -135,20 +135,20 @@ wrap(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp,
     if (!ct)
         return false;
 
-    ctx = EVP_CIPHER_CTX_new();
-    if (!ctx)
+    ecc = EVP_CIPHER_CTX_new();
+    if (!ecc)
         return false;
 
-    EVP_CIPHER_CTX_set_flags(ctx, EVP_CIPHER_CTX_FLAG_WRAP_ALLOW);
+    EVP_CIPHER_CTX_set_flags(ecc, EVP_CIPHER_CTX_FLAG_WRAP_ALLOW);
 
-    if (EVP_EncryptInit_ex(ctx, cph, NULL, ky->data, iv) <= 0)
+    if (EVP_EncryptInit_ex(ecc, cph, NULL, ky->data, iv) <= 0)
         return false;
 
-    if (EVP_EncryptUpdate(ctx, ct->data, &tmp, pt->data, pt->size) <= 0)
+    if (EVP_EncryptUpdate(ecc, ct->data, &tmp, pt->data, pt->size) <= 0)
         return false;
     ct->size = tmp;
 
-    if (EVP_EncryptFinal(ctx, &ct->data[tmp], &tmp) <= 0)
+    if (EVP_EncryptFinal(ecc, &ct->data[tmp], &tmp) <= 0)
         return false;
     ct->size += tmp;
 
@@ -157,10 +157,10 @@ wrap(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp,
 }
 
 static bool
-unwrap(const json_t *jwe, const json_t *jwk, const json_t *rcp,
-       const char *alg, json_t *cek)
+unwrap(jose_ctx_t *ctx, const json_t *jwe, const json_t *jwk,
+       const json_t *rcp, const char *alg, json_t *cek)
 {
-    openssl_auto(EVP_CIPHER_CTX) *ctx = NULL;
+    openssl_auto(EVP_CIPHER_CTX) *ecc = NULL;
     const EVP_CIPHER *cph = NULL;
     jose_buf_auto_t *ky = NULL;
     jose_buf_auto_t *pt = NULL;
@@ -192,20 +192,20 @@ unwrap(const json_t *jwe, const json_t *jwk, const json_t *rcp,
     if (!pt)
         return false;
 
-    ctx = EVP_CIPHER_CTX_new();
-    if (!ctx)
+    ecc = EVP_CIPHER_CTX_new();
+    if (!ecc)
         return false;
 
-    EVP_CIPHER_CTX_set_flags(ctx, EVP_CIPHER_CTX_FLAG_WRAP_ALLOW);
+    EVP_CIPHER_CTX_set_flags(ecc, EVP_CIPHER_CTX_FLAG_WRAP_ALLOW);
 
-    if (EVP_DecryptInit_ex(ctx, cph, NULL, ky->data, iv) <= 0)
+    if (EVP_DecryptInit_ex(ecc, cph, NULL, ky->data, iv) <= 0)
         return false;
 
-    if (EVP_DecryptUpdate(ctx, pt->data, &tmp, ct->data, ct->size) <= 0)
+    if (EVP_DecryptUpdate(ecc, pt->data, &tmp, ct->data, ct->size) <= 0)
         return false;
     pt->size = tmp;
 
-    if (EVP_DecryptFinal(ctx, &pt->data[tmp], &tmp) <= 0)
+    if (EVP_DecryptFinal(ecc, &pt->data[tmp], &tmp) <= 0)
         return false;
     pt->size += tmp;
 

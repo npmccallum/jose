@@ -28,10 +28,10 @@ declare_cleanup(ECDSA_SIG)
 declare_cleanup(EC_KEY)
 
 static EC_KEY *
-setup(const json_t *jwk, const char *alg, const char *prot, const char *payl,
-      uint8_t hsh[], size_t *hl)
+setup(jose_ctx_t *ctx, const json_t *jwk, const char *alg, const char *prot,
+      const char *payl, uint8_t hsh[], size_t *hl)
 {
-    openssl_auto(EVP_MD_CTX) *ctx = NULL;
+    openssl_auto(EVP_MD_CTX) *emc = NULL;
     openssl_auto(EC_KEY) *key = NULL;
     const EVP_MD *md = NULL;
     const char *req = NULL;
@@ -53,23 +53,23 @@ setup(const json_t *jwk, const char *alg, const char *prot, const char *payl,
     if (strcmp(alg, req) != 0)
         return NULL;
 
-    ctx = EVP_MD_CTX_new();
-    if (!ctx)
+    emc = EVP_MD_CTX_new();
+    if (!emc)
         return NULL;
 
-    if (EVP_DigestInit(ctx, md) <= 0)
+    if (EVP_DigestInit(emc, md) <= 0)
         return NULL;
 
-    if (EVP_DigestUpdate(ctx, (const uint8_t *) prot, strlen(prot)) <= 0)
+    if (EVP_DigestUpdate(emc, (const uint8_t *) prot, strlen(prot)) <= 0)
         return NULL;
 
-    if (EVP_DigestUpdate(ctx, (const uint8_t *) ".", 1) <= 0)
+    if (EVP_DigestUpdate(emc, (const uint8_t *) ".", 1) <= 0)
         return NULL;
 
-    if (EVP_DigestUpdate(ctx, (const uint8_t *) payl, strlen(payl)) <= 0)
+    if (EVP_DigestUpdate(emc, (const uint8_t *) payl, strlen(payl)) <= 0)
         return NULL;
 
-    if (EVP_DigestFinal(ctx, hsh, &ign) <= 0)
+    if (EVP_DigestFinal(emc, hsh, &ign) <= 0)
         return NULL;
 
     *hl = EVP_MD_size(md);
@@ -77,7 +77,7 @@ setup(const json_t *jwk, const char *alg, const char *prot, const char *payl,
 }
 
 static bool
-handles(json_t *jwk)
+handles(jose_ctx_t *ctx, json_t *jwk)
 {
     const char *alg = NULL;
 
@@ -88,7 +88,7 @@ handles(json_t *jwk)
 }
 
 static bool
-resolve(json_t *jwk)
+resolve(jose_ctx_t *ctx, json_t *jwk)
 {
     json_auto_t *upd = NULL;
     const char *alg = NULL;
@@ -126,7 +126,7 @@ resolve(json_t *jwk)
 }
 
 static const char *
-suggest(const json_t *jwk)
+suggest(jose_ctx_t *ctx, const json_t *jwk)
 {
     const char *kty = NULL;
     const char *crv = NULL;
@@ -147,7 +147,7 @@ suggest(const json_t *jwk)
 }
 
 static bool
-sign(json_t *sig, const json_t *jwk,
+sign(jose_ctx_t *ctx, json_t *sig, const json_t *jwk,
      const char *alg, const char *prot, const char *payl)
 {
     openssl_auto(ECDSA_SIG) *ecdsa = NULL;
@@ -157,7 +157,7 @@ sign(json_t *sig, const json_t *jwk,
     const BIGNUM *s = NULL;
     size_t hl = 0;
 
-    key = setup(jwk, alg, prot, payl, hsh, &hl);
+    key = setup(ctx, jwk, alg, prot, payl, hsh, &hl);
     if (!key)
         return false;
 
@@ -180,7 +180,7 @@ sign(json_t *sig, const json_t *jwk,
 }
 
 static bool
-verify(const json_t *sig, const json_t *jwk,
+verify(jose_ctx_t *ctx, const json_t *sig, const json_t *jwk,
        const char *alg, const char *prot, const char *payl)
 {
     openssl_auto(ECDSA_SIG) *ecdsa = NULL;
@@ -192,7 +192,7 @@ verify(const json_t *sig, const json_t *jwk,
     BIGNUM *s = NULL;
     size_t hshl = 0;
 
-    key = setup(jwk, alg, prot, payl, hsh, &hshl);
+    key = setup(ctx, jwk, alg, prot, payl, hsh, &hshl);
     if (!key)
         return false;
 

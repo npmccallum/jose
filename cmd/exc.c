@@ -83,7 +83,7 @@ jcmd_exc(int argc, char *argv[])
         goto usage;
     }
 
-    key = jose_jwk_exchange(lcl, rem);
+    key = jose_jwk_exchange(NULL, lcl, rem);
     if (!key) {
         fprintf(stderr, "Error performing exchange!\n");
         return EXIT_FAILURE;

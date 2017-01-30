@@ -37,7 +37,7 @@ declare_cleanup(EVP_PKEY_CTX)
 declare_cleanup(EVP_PKEY)
 
 static bool
-handles(json_t *jwk)
+handles(jose_ctx_t *ctx, json_t *jwk)
 {
     const char *alg = NULL;
 
@@ -48,7 +48,7 @@ handles(json_t *jwk)
 }
 
 static bool
-resolve(json_t *jwk)
+resolve(jose_ctx_t *ctx, json_t *jwk)
 {
     json_auto_t *upd = NULL;
     const char *kty = NULL;
@@ -74,7 +74,7 @@ resolve(json_t *jwk)
 }
 
 static const char *
-suggest(const json_t *jwk)
+suggest(jose_ctx_t *ctx, const json_t *jwk)
 {
     const char *kty = NULL;
 
@@ -88,10 +88,10 @@ suggest(const json_t *jwk)
 }
 
 static bool
-wrap(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp,
+wrap(jose_ctx_t *ctx, json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp,
      const char *alg)
 {
-    openssl_auto(EVP_PKEY_CTX) *ctx = NULL;
+    openssl_auto(EVP_PKEY_CTX) *epc = NULL;
     openssl_auto(EVP_PKEY) *key = NULL;
     jose_buf_auto_t *pt = NULL;
     jose_buf_auto_t *ct = NULL;
@@ -101,7 +101,7 @@ wrap(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp,
     int tmp = 0;
     int pad = 0;
 
-    if (!json_object_get(cek, "k") && !jose_jwk_generate(cek))
+    if (!json_object_get(cek, "k") && !jose_jwk_generate(ctx, cek))
         return false;
 
     switch (str2enum(alg, NAMES, NULL)) {
@@ -126,32 +126,32 @@ wrap(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp,
     if ((int) pt->size >= RSA_size(rsa) - tmp)
         return false;
 
-    ctx = EVP_PKEY_CTX_new(key, NULL);
-    if (!ctx)
+    epc = EVP_PKEY_CTX_new(key, NULL);
+    if (!epc)
         return false;
 
-    if (EVP_PKEY_encrypt_init(ctx) <= 0)
+    if (EVP_PKEY_encrypt_init(epc) <= 0)
         return false;
 
-    if (EVP_PKEY_CTX_set_rsa_padding(ctx, pad) <= 0)
+    if (EVP_PKEY_CTX_set_rsa_padding(epc, pad) <= 0)
         return false;
 
     if (pad == RSA_PKCS1_OAEP_PADDING) {
-        if (EVP_PKEY_CTX_set_rsa_oaep_md(ctx, md) <= 0)
+        if (EVP_PKEY_CTX_set_rsa_oaep_md(epc, md) <= 0)
             return false;
 
-        if (EVP_PKEY_CTX_set_rsa_mgf1_md(ctx, md) <= 0)
+        if (EVP_PKEY_CTX_set_rsa_mgf1_md(epc, md) <= 0)
             return false;
     }
 
-    if (EVP_PKEY_encrypt(ctx, NULL, &len, pt->data, pt->size) <= 0)
+    if (EVP_PKEY_encrypt(epc, NULL, &len, pt->data, pt->size) <= 0)
         return false;
 
     ct = jose_buf(len, JOSE_BUF_FLAG_NONE);
     if (!ct)
         return false;
 
-    if (EVP_PKEY_encrypt(ctx, ct->data, &ct->size, pt->data, pt->size) <= 0)
+    if (EVP_PKEY_encrypt(epc, ct->data, &ct->size, pt->data, pt->size) <= 0)
         return false;
 
     return json_object_set_new(rcp, "encrypted_key",
@@ -159,10 +159,10 @@ wrap(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp,
 }
 
 static bool
-unwrap(const json_t *jwe, const json_t *jwk, const json_t *rcp,
-       const char *alg, json_t *cek)
+unwrap(jose_ctx_t *ctx, const json_t *jwe, const json_t *jwk,
+       const json_t *rcp, const char *alg, json_t *cek)
 {
-    openssl_auto(EVP_PKEY_CTX) *ctx = NULL;
+    openssl_auto(EVP_PKEY_CTX) *epc = NULL;
     openssl_auto(EVP_PKEY) *key = NULL;
     jose_buf_auto_t *pt = NULL;
     jose_buf_auto_t *ct = NULL;
@@ -190,21 +190,21 @@ unwrap(const json_t *jwe, const json_t *jwk, const json_t *rcp,
     if (!pt)
         return false;
 
-    ctx = EVP_PKEY_CTX_new(key, NULL);
-    if (!ctx)
+    epc = EVP_PKEY_CTX_new(key, NULL);
+    if (!epc)
         return false;
 
-    if (EVP_PKEY_decrypt_init(ctx) <= 0)
+    if (EVP_PKEY_decrypt_init(epc) <= 0)
         return false;
 
-    if (EVP_PKEY_CTX_set_rsa_padding(ctx, pad) <= 0)
+    if (EVP_PKEY_CTX_set_rsa_padding(epc, pad) <= 0)
         return false;
 
     if (pad == RSA_PKCS1_OAEP_PADDING) {
-        if (EVP_PKEY_CTX_set_rsa_oaep_md(ctx, md) <= 0)
+        if (EVP_PKEY_CTX_set_rsa_oaep_md(epc, md) <= 0)
             return false;
 
-        if (EVP_PKEY_CTX_set_rsa_mgf1_md(ctx, md) <= 0)
+        if (EVP_PKEY_CTX_set_rsa_mgf1_md(epc, md) <= 0)
             return false;
     }
 
@@ -221,7 +221,7 @@ unwrap(const json_t *jwe, const json_t *jwk, const json_t *rcp,
     }
 
     tt = pt;
-    if (EVP_PKEY_decrypt(ctx, pt->data, &pt->size, ct->data, ct->size) <= 0) {
+    if (EVP_PKEY_decrypt(epc, pt->data, &pt->size, ct->data, ct->size) <= 0) {
         if (pad == RSA_PKCS1_PADDING) {
             tt = rt;
         } else

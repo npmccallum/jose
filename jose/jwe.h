@@ -17,7 +17,9 @@
 
 #pragma once
 
-#include <jose/buf.h>
+#include "buf.h"
+#include "ctx.h"
+
 #include <jansson.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -29,7 +31,7 @@
  * jose_jwe_wrap() in order to perform that operation.
  */
 bool
-jose_jwe_encrypt(json_t *jwe, const json_t *cek,
+jose_jwe_encrypt(jose_ctx_t *ctx, json_t *jwe, const json_t *cek,
                  const uint8_t pt[], size_t ptl);
 
 /**
@@ -39,7 +41,8 @@ jose_jwe_encrypt(json_t *jwe, const json_t *cek,
  * jose_jwe_wrap() in order to perform that operation.
  */
 bool
-jose_jwe_encrypt_json(json_t *jwe, const json_t *cek, json_t *pt);
+jose_jwe_encrypt_json(jose_ctx_t *ctx, json_t *jwe, const json_t *cek,
+                      json_t *pt);
 
 /**
  * Wraps a CEK using the specified JWK.
@@ -63,7 +66,8 @@ jose_jwe_encrypt_json(json_t *jwe, const json_t *cek, json_t *pt);
  * the value must be a template recipient object.
  */
 bool
-jose_jwe_wrap(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp);
+jose_jwe_wrap(jose_ctx_t *ctx, json_t *jwe, json_t *cek, const json_t *jwk,
+              json_t *rcp);
 
 /**
  * Unwraps the CEK using the specified JWK.
@@ -81,7 +85,8 @@ jose_jwe_wrap(json_t *jwe, json_t *cek, const json_t *jwk, json_t *rcp);
  * the unwrapping process.
  */
 json_t *
-jose_jwe_unwrap(const json_t *jwe, const json_t *jwk, const json_t *rcp);
+jose_jwe_unwrap(jose_ctx_t *ctx, const json_t *jwe, const json_t *jwk,
+                const json_t *rcp);
 
 /**
  * Decrypts the ciphertext bytes in the JWE using the specified CEK.
@@ -89,7 +94,7 @@ jose_jwe_unwrap(const json_t *jwe, const json_t *jwk, const json_t *rcp);
  * Implicitly, this validates the protected header.
  */
 jose_buf_t *
-jose_jwe_decrypt(const json_t *jwe, const json_t *cek);
+jose_jwe_decrypt(jose_ctx_t *ctx, const json_t *jwe, const json_t *cek);
 
 /**
  * Decrypts the ciphertext JSON in the JWE using the specified CEK.
@@ -97,7 +102,7 @@ jose_jwe_decrypt(const json_t *jwe, const json_t *cek);
  * Implicitly, this validates the protected header.
  */
 json_t *
-jose_jwe_decrypt_json(const json_t *jwe, const json_t *cek);
+jose_jwe_decrypt_json(jose_ctx_t *ctx, const json_t *jwe, const json_t *cek);
 
 /**
  * Merges the protected, shared and unprotected headers into the JOSE header.

@@ -73,7 +73,7 @@ mkrsa(const json_t *jwk)
 }
 
 static bool
-handles(json_t *jwk)
+handles(jose_ctx_t *ctx, json_t *jwk)
 {
     const char *kty = NULL;
 
@@ -84,7 +84,7 @@ handles(json_t *jwk)
 }
 
 static bool
-generate(json_t *jwk)
+generate(jose_ctx_t *ctx, json_t *jwk)
 {
     json_auto_t *tmp = NULL;
     RSA *rsa = NULL;

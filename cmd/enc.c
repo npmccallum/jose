@@ -142,7 +142,7 @@ jcmd_enc(int argc, char *argv[])
         goto egress;
 
     for (size_t i = 0; i < json_array_size(jwks); i++) {
-        if (!jose_jwe_wrap(tmpl, cek, json_array_get(jwks, i),
+        if (!jose_jwe_wrap(NULL, tmpl, cek, json_array_get(jwks, i),
                            json_array_get(rcps, i))) {
             fprintf(stderr, "Wrapping failed!\n");
             goto egress;
@@ -173,7 +173,7 @@ jcmd_enc(int argc, char *argv[])
             goto egress;
     }
 
-    if (!jose_jwe_encrypt(tmpl, cek, buf, len)) {
+    if (!jose_jwe_encrypt(NULL, tmpl, cek, buf, len)) {
         fprintf(stderr, "Error encrypting input!\n");
         goto egress;
     }
