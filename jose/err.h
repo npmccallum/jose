@@ -21,3 +21,5 @@ enum {
     JOSE_ERR_OK = 0,
     JOSE_ERR_CRYPTO = 0x105E0000,
 };
+
+typedef int jose_err_t;
