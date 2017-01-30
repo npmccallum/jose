@@ -47,7 +47,7 @@ jose_jwk_generate(json_t *jwk)
         return false;
 
     for (jose_jwk_generator_t *g = jose_jwk_generators(); g; g = g->next) {
-        if (strcmp(g->kty, kty) != 0)
+        if (!g->handles(jwk))
             continue;
 
         if (!g->generate(jwk))

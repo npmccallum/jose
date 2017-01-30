@@ -43,6 +43,7 @@ typedef struct jose_jwk_resolver {
 typedef struct jose_jwk_generator {
     struct jose_jwk_generator *next;
     const char *kty;
+    bool (*handles)(json_t *jwk);
     bool (*generate)(json_t *jwk);
 } jose_jwk_generator_t;
 
