@@ -17,6 +17,7 @@ libjose_la_SOURCES = \
     lib/buf.c \
     lib/b64.c \
     lib/hooks.c \
+    lib/ctx.c \
     lib/jwk.c \
     lib/jws.c \
     lib/jwe.c \

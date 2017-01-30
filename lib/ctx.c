@@ -15,24 +15,53 @@
  * limitations under the License.
  */
 
-#pragma once
+#include <jose/ctx.h>
+#include <stdlib.h>
+#include <string.h>
 
-#include <stdbool.h>
-
-#if defined(__GNUC__) || defined(__clang__)
-#define jose_ctx_auto_t jose_ctx_t __attribute__((cleanup(jose_ctx_auto)))
-#endif
-
-typedef struct jose_ctx jose_ctx_t;
+struct jose_ctx {
+    size_t ref;
+};
 
 jose_ctx_t *
-jose_ctx(void);
+jose_ctx(void)
+{
+    jose_ctx_t *ctx = NULL;
+
+    ctx = calloc(1, sizeof(*ctx));
+    if (!ctx)
+        return NULL;
+
+    ctx->ref++;
+    return ctx;
+}
 
 jose_ctx_t *
-jose_ctx_incref(jose_ctx_t *ctx);
+jose_ctx_incref(jose_ctx_t *ctx)
+{
+    if (ctx)
+        ctx->ref++;
+
+    return ctx;
+}
 
 void
-jose_ctx_decref(jose_ctx_t *ctx);
+jose_ctx_decref(jose_ctx_t *ctx)
+{
+    if (!ctx)
+        return;
+
+    if (--ctx->ref == 0) {
+        free(ctx);
+    }
+}
 
 void
-jose_ctx_auto(jose_ctx_t **ctx);
+jose_ctx_auto(jose_ctx_t **ctx)
+{
+    if (!ctx)
+        return;
+
+    jose_ctx_decref(*ctx);
+    *ctx = NULL;
+}
