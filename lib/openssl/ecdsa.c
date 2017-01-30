@@ -21,6 +21,8 @@
 
 #include <string.h>
 
+#define NAMES "ES256", "ES384", "ES512"
+
 declare_cleanup(EVP_MD_CTX)
 declare_cleanup(ECDSA_SIG)
 declare_cleanup(EC_KEY)
@@ -75,6 +77,17 @@ setup(const json_t *jwk, const char *alg, const char *prot, const char *payl,
 }
 
 static bool
+handles(json_t *jwk)
+{
+    const char *alg = NULL;
+
+    if (json_unpack(jwk, "{s:s}", "alg", &alg) == -1)
+        return false;
+
+    return str2enum(alg, NAMES, NULL) < 3;
+}
+
+static bool
 resolve(json_t *jwk)
 {
     json_auto_t *upd = NULL;
@@ -87,7 +100,7 @@ resolve(json_t *jwk)
                     "kty", &kty, "alg", &alg, "crv", &crv) == -1)
         return false;
 
-    switch (str2enum(alg, "ES256", "ES384", "ES512", NULL)) {
+    switch (str2enum(alg, NAMES, NULL)) {
     case 0: grp = "P-256"; break;
     case 1: grp = "P-384"; break;
     case 2: grp = "P-521"; break;
@@ -205,6 +218,7 @@ static void __attribute__((constructor))
 constructor(void)
 {
     static jose_jwk_resolver_t resolver = {
+        .handles = handles,
         .resolve = resolve
     };
 
