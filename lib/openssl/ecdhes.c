@@ -131,6 +131,17 @@ concatkdf(const EVP_MD *md, uint8_t dk[], size_t dkl,
 }
 
 static bool
+handles(json_t *jwk)
+{
+    const char *alg = NULL;
+
+    if (json_unpack(jwk, "{s:s}", "alg", &alg) == -1)
+        return false;
+
+    return str2enum(alg, NAMES, NULL) < 4;
+}
+
+static bool
 resolve(json_t *jwk)
 {
     const char *alg = NULL;
@@ -405,6 +416,7 @@ constructor(void)
     };
 
     static jose_jwk_resolver_t resolver = {
+        .handles = handles,
         .resolve = resolve
     };
 

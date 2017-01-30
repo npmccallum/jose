@@ -36,6 +36,7 @@ typedef struct jose_jwk_op {
 
 typedef struct jose_jwk_resolver {
     struct jose_jwk_resolver *next;
+    bool (*handles)(json_t *jwk);
     bool (*resolve)(json_t *jwk);
 } jose_jwk_resolver_t;
 

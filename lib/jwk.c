@@ -31,6 +31,8 @@ jose_jwk_generate(json_t *jwk)
     const char *kty = NULL;
 
     for (jose_jwk_resolver_t *r = jose_jwk_resolvers(); r; r = r->next) {
+        if (!r->handles(jwk))
+            continue;
         if (!r->resolve(jwk))
             return false;
     }
