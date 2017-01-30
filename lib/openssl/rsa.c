@@ -19,6 +19,8 @@
 #include <jose/hooks.h>
 #include <jose/openssl.h>
 
+#include <string.h>
+
 static RSA *
 mkrsa(const json_t *jwk)
 {
@@ -71,6 +73,17 @@ mkrsa(const json_t *jwk)
 }
 
 static bool
+handles(json_t *jwk)
+{
+    const char *kty = NULL;
+
+    if (json_unpack(jwk, "{s:s}", "kty", &kty) == -1)
+        return false;
+
+    return strcmp(kty, "RSA") == 0;
+}
+
+static bool
 generate(json_t *jwk)
 {
     json_auto_t *tmp = NULL;
@@ -98,6 +111,7 @@ static void __attribute__((constructor))
 constructor(void)
 {
     static jose_jwk_generator_t generator = {
+        .handles = handles,
         .kty = "RSA",
         .generate = generate
     };
