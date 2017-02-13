@@ -25,7 +25,13 @@
 
 #define NAMES "RS256", "RS384", "RS512", "PS256", "PS384", "PS512"
 
-declare_cleanup(EVP_MD_CTX)
+typedef typeof(EVP_DigestSignInit) initfnc_t;
+
+struct jose_jws_vctx_hook {
+    EVP_MD_CTX *ctx;
+    jose_buf_t *sig;
+};
+
 declare_cleanup(EVP_PKEY)
 
 static bool
@@ -88,17 +94,14 @@ suggest(jose_ctx_t *ctx, const json_t *jwk)
     }
 }
 
-static bool
-sign(jose_ctx_t *ctx, json_t *sig, const json_t *jwk,
-     const char *alg, const char *prot, const char *payl)
+static EVP_MD_CTX *
+setup(const json_t *jwk, const char *alg, initfnc_t *func)
 {
-    openssl_auto(EVP_MD_CTX) *emc = NULL;
     openssl_auto(EVP_PKEY) *key = NULL;
-    jose_buf_auto_t *sg = NULL;
     EVP_PKEY_CTX *epc = NULL;
     const EVP_MD *md = NULL;
+    EVP_MD_CTX *emc = NULL;
     const RSA *rsa = NULL;
-    size_t sgl = 0;
     int pad = 0;
 
     switch (str2enum(alg, NAMES, NULL)) {
@@ -108,110 +111,126 @@ sign(jose_ctx_t *ctx, json_t *sig, const json_t *jwk,
     case 3: md = EVP_sha256(); pad = RSA_PKCS1_PSS_PADDING; break;
     case 4: md = EVP_sha384(); pad = RSA_PKCS1_PSS_PADDING; break;
     case 5: md = EVP_sha512(); pad = RSA_PKCS1_PSS_PADDING; break;
-    default: return false;
+    default: return NULL;
     }
 
     key = jose_openssl_jwk_to_EVP_PKEY(jwk);
     if (!key || EVP_PKEY_base_id(key) != EVP_PKEY_RSA)
-        return false;
+        return NULL;
 
     /* Don't use small keys. RFC 7518 3.3 */
     rsa = EVP_PKEY_get0_RSA(key);
     if (!rsa)
-        return false;
+        return NULL;
     if (RSA_size(rsa) < 2048 / 8)
-        return false;
+        return NULL;
 
     emc = EVP_MD_CTX_new();
     if (!emc)
-        return false;
+        return NULL;
 
-    if (EVP_DigestSignInit(emc, &epc, md, NULL, key) < 0)
-        return false;
+    if (func(emc, &epc, md, NULL, key) <= 0) {
+        EVP_MD_CTX_free(emc);
+        return NULL;
+    }
 
-    if (EVP_PKEY_CTX_set_rsa_padding(epc, pad) < 0)
-        return false;
+    if (EVP_PKEY_CTX_set_rsa_padding(epc, pad) <= 0) {
+        EVP_MD_CTX_free(emc);
+        return NULL;
+    }
 
-    if (EVP_DigestSignUpdate(emc, prot, strlen(prot)) < 0)
-        return false;
+    return emc;
+}
 
-    if (EVP_DigestSignUpdate(emc, ".", 1) < 0)
-        return false;
+static void
+sig_free(jose_jws_sctx_hook_t *sctx)
+{
+    EVP_MD_CTX_free((EVP_MD_CTX *) sctx);
+}
 
-    if (EVP_DigestSignUpdate(emc, payl, strlen(payl)) < 0)
-        return false;
-
-    if (EVP_DigestSignFinal(emc, NULL, &sgl) < 0)
-        return false;
-
-    sg = jose_buf(sgl, JOSE_BUF_FLAG_WIPE);
-    if (!sg)
-        return false;
-
-    if (EVP_DigestSignFinal(emc, sg->data, &sg->size) < 0)
-        return false;
-
-    return json_object_set_new(sig, "signature",
-                               jose_b64_encode_json(sg->data, sg->size)) == 0;
+static jose_jws_sctx_hook_t *
+sig_init(jose_ctx_t *ctx, const json_t *jwk, const char *alg)
+{
+    return (jose_jws_sctx_hook_t *) setup(jwk, alg, EVP_DigestSignInit);
 }
 
 static bool
-verify(jose_ctx_t *ctx, const json_t *sig, const json_t *jwk,
-       const char *alg, const char *prot, const char *payl)
+sig_push(jose_jws_sctx_hook_t *sctx, const char *data)
 {
-    openssl_auto(EVP_MD_CTX) *emc = NULL;
-    openssl_auto(EVP_PKEY) *key = NULL;
-    jose_buf_auto_t *sgn = NULL;
-    EVP_PKEY_CTX *epc = NULL;
-    const EVP_MD *md = NULL;
-    const RSA *rsa = NULL;
-    int pad = 0;
+    return EVP_DigestSignUpdate((EVP_MD_CTX *) sctx, data, strlen(data)) > 0;
+}
 
-    switch (str2enum(alg, NAMES, NULL)) {
-    case 0: md = EVP_sha256(); pad = RSA_PKCS1_PADDING; break;
-    case 1: md = EVP_sha384(); pad = RSA_PKCS1_PADDING; break;
-    case 2: md = EVP_sha512(); pad = RSA_PKCS1_PADDING; break;
-    case 3: md = EVP_sha256(); pad = RSA_PKCS1_PSS_PADDING; break;
-    case 4: md = EVP_sha384(); pad = RSA_PKCS1_PSS_PADDING; break;
-    case 5: md = EVP_sha512(); pad = RSA_PKCS1_PSS_PADDING; break;
-    default: return false;
+static jose_buf_t *
+sig_done(jose_jws_sctx_hook_t *sctx)
+{
+    jose_buf_auto_t *sig = NULL;
+    size_t len = 0;
+
+    if (EVP_DigestSignFinal((EVP_MD_CTX *) sctx, NULL, &len) <= 0)
+        goto error;
+
+    sig = jose_buf(len, JOSE_BUF_FLAG_WIPE);
+    if (!sig)
+        goto error;
+
+    if (EVP_DigestSignFinal((EVP_MD_CTX *) sctx, sig->data, &len) <= 0)
+        goto error;
+
+    if (sig->size != len)
+        goto error;
+
+    sig_free(sctx);
+    return jose_buf_incref(sig);
+
+error:
+    sig_free(sctx);
+    return NULL;
+}
+
+static void
+ver_free(jose_jws_vctx_hook_t *vctx)
+{
+    if (!vctx)
+        return;
+
+    EVP_MD_CTX_free(vctx->ctx);
+    jose_buf_decref(vctx->sig);
+    free(vctx);
+}
+
+static jose_jws_vctx_hook_t *
+ver_init(jose_ctx_t *ctx, const json_t *jwk, const char *alg, jose_buf_t *sig)
+{
+    jose_jws_vctx_hook_t *vctx = NULL;
+
+    vctx = calloc(1, sizeof(*vctx));
+    if (!vctx)
+        return NULL;
+
+    vctx->ctx = setup(jwk, alg, EVP_DigestVerifyInit);
+    if (!vctx->ctx) {
+        free(vctx);
+        return NULL;
     }
 
-    key = jose_openssl_jwk_to_EVP_PKEY(jwk);
-    if (!key || EVP_PKEY_base_id(key) != EVP_PKEY_RSA)
-        return false;
+    vctx->sig = jose_buf_incref(sig);
+    return vctx;
+}
 
-    /* Don't use small keys. RFC 7518 3.3 */
-    rsa = EVP_PKEY_get0_RSA(key);
-    if (!rsa)
-        return false;
-    if (RSA_size(rsa) < 2048 / 8)
-        return false;
+static bool
+ver_push(jose_jws_vctx_hook_t *vctx, const char *data)
+{
+    return EVP_DigestVerifyUpdate(vctx->ctx, data, strlen(data)) > 0;
+}
 
-    sgn = jose_b64_decode_json(json_object_get(sig, "signature"));
-    if (!sgn)
-        return false;
+static bool
+ver_done(jose_jws_vctx_hook_t *vctx)
+{
+    int i = 0;
 
-    emc = EVP_MD_CTX_new();
-    if (!emc)
-        return false;
-
-    if (EVP_DigestVerifyInit(emc, &epc, md, NULL, key) < 0)
-        return false;
-
-    if (EVP_PKEY_CTX_set_rsa_padding(epc, pad) < 0)
-        return false;
-
-    if (EVP_DigestVerifyUpdate(emc, prot, strlen(prot)) < 0)
-        return false;
-
-    if (EVP_DigestVerifyUpdate(emc, ".", 1) < 0)
-        return false;
-
-    if (EVP_DigestVerifyUpdate(emc, payl, strlen(payl)) < 0)
-        return false;
-
-    return EVP_DigestVerifyFinal(emc, sgn->data, sgn->size) == 1;
+    i = EVP_DigestVerifyFinal(vctx->ctx, vctx->sig->data, vctx->sig->size);
+    ver_free(vctx);
+    return i == 1;
 }
 
 static void __attribute__((constructor))
@@ -223,12 +242,24 @@ constructor(void)
     };
 
     static jose_jws_signer_t signers[] = {
-        { NULL, "RS256", suggest, sign, verify },
-        { NULL, "RS384", suggest, sign, verify },
-        { NULL, "RS512", suggest, sign, verify },
-        { NULL, "PS256", suggest, sign, verify },
-        { NULL, "PS384", suggest, sign, verify },
-        { NULL, "PS512", suggest, sign, verify },
+        { NULL, "RS256", suggest,
+            sig_init, sig_push, sig_done, sig_free,
+            ver_init, ver_push, ver_done, ver_free },
+        { NULL, "RS384", suggest,
+            sig_init, sig_push, sig_done, sig_free,
+            ver_init, ver_push, ver_done, ver_free },
+        { NULL, "RS512", suggest,
+            sig_init, sig_push, sig_done, sig_free,
+            ver_init, ver_push, ver_done, ver_free },
+        { NULL, "PS256", suggest,
+            sig_init, sig_push, sig_done, sig_free,
+            ver_init, ver_push, ver_done, ver_free },
+        { NULL, "PS384", suggest,
+            sig_init, sig_push, sig_done, sig_free,
+            ver_init, ver_push, ver_done, ver_free },
+        { NULL, "PS512", suggest,
+            sig_init, sig_push, sig_done, sig_free,
+            ver_init, ver_push, ver_done, ver_free },
         {}
     };
 

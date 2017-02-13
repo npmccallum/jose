@@ -23,6 +23,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+typedef struct jose_jws_sctx jose_jws_sctx_t;
+typedef struct jose_jws_vctx jose_jws_vctx_t;
+
 /**
  * Adds an additional signature to the JWS using the specified JWK.
  *
@@ -31,8 +34,20 @@
  * The sig parameter optionally contains a template to use for the signature.
  */
 bool
-jose_jws_sign(jose_ctx_t *ctx, json_t *jws, const json_t *jwk,
-              const json_t *sig);
+jose_jws_sign(jose_ctx_t *ctx, json_t *jws, const json_t *sig,
+              const json_t *jwk);
+
+jose_jws_sctx_t *
+jose_jws_sign_init(jose_ctx_t *ctx, const json_t *sig, const json_t *jwk);
+
+bool
+jose_jws_sign_push(jose_jws_sctx_t *sctx, const char *payl);
+
+bool
+jose_jws_sign_done(jose_jws_sctx_t *sctx, json_t *jws);
+
+void
+jose_jws_sign_free(jose_jws_sctx_t *sctx);
 
 /**
  * Verififes a signature in a JWS using the specified JWK.
@@ -42,8 +57,20 @@ jose_jws_sign(jose_ctx_t *ctx, json_t *jws, const json_t *jwk,
  * signature verifies.
  */
 bool
-jose_jws_verify(jose_ctx_t *ctx, const json_t *jws, const json_t *jwk,
-                const json_t *sig);
+jose_jws_verify(jose_ctx_t *ctx, const json_t *jws, const json_t *sig,
+                const json_t *jwk);
+
+jose_jws_vctx_t *
+jose_jws_verify_init(jose_ctx_t *ctx, const json_t *sig, const json_t *jwk);
+
+bool
+jose_jws_verify_push(jose_jws_vctx_t *vctx, const char *payl);
+
+bool
+jose_jws_verify_done(jose_jws_vctx_t *vctx);
+
+void
+jose_jws_verify_free(jose_jws_vctx_t *vctx);
 
 /**
  * Merges the protected and unprotected headers into the single JOSE header.

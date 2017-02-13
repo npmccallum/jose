@@ -59,15 +59,37 @@ typedef struct jose_jwk_exchanger {
     json_t *(*exchange)(jose_ctx_t *ctx, const json_t *prv, const json_t *pub);
 } jose_jwk_exchanger_t;
 
+typedef struct jose_jws_sctx_hook jose_jws_sctx_hook_t;
+typedef struct jose_jws_vctx_hook jose_jws_vctx_hook_t;
 typedef struct jose_jws_signer {
     struct jose_jws_signer *next;
 
     const char *alg;
     const char *(*suggest)(jose_ctx_t *ctx, const json_t *jwk);
-    bool (*sign)(jose_ctx_t *ctx, json_t *sig, const json_t *jwk,
-                 const char *alg, const char *prot, const char *payl);
-    bool (*verify)(jose_ctx_t *ctx, const json_t *sig, const json_t *jwk,
-                   const char *alg, const char *prot, const char *payl);
+
+    jose_jws_sctx_hook_t *
+    (*sig_init)(jose_ctx_t *ctx, const json_t *jwk, const char *alg);
+
+    bool
+    (*sig_push)(jose_jws_sctx_hook_t *sctx, const char *data);
+
+    jose_buf_t *
+    (*sig_done)(jose_jws_sctx_hook_t *sctx);
+
+    void
+    (*sig_free)(jose_jws_sctx_hook_t *sctx);
+
+    jose_jws_vctx_hook_t *
+    (*ver_init)(jose_ctx_t *ctx, const json_t *jwk, const char *alg, jose_buf_t *sig);
+
+    bool
+    (*ver_push)(jose_jws_vctx_hook_t *vctx, const char *payl);
+
+    bool
+    (*ver_done)(jose_jws_vctx_hook_t *vctx);
+
+    void
+    (*ver_free)(jose_jws_vctx_hook_t *vctx);
 } jose_jws_signer_t;
 
 typedef struct jose_jwe_crypter {

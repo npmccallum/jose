@@ -115,7 +115,7 @@ jcmd_ver(int argc, char *argv[])
     for (size_t i = 0; i < json_array_size(jwks); i++) {
         bool valid = false;
 
-        valid = jose_jws_verify(NULL, jws, json_array_get(jwks, i), NULL);
+        valid = jose_jws_verify(NULL, jws, NULL, json_array_get(jwks, i));
         if (valid && !all) {
             all = true;
             break;

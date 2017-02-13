@@ -221,6 +221,12 @@ HMAC_CTX_new(void)
     return ctx;
 }
 
+const EVP_MD *
+HMAC_CTX_get_md(const HMAC_CTX *ctx)
+{
+    return ctx->md;
+}
+
 void
 HMAC_CTX_free(HMAC_CTX *ctx)
 {

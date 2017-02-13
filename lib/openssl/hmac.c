@@ -25,35 +25,6 @@
 
 #define NAMES "HS256", "HS384", "HS512"
 
-declare_cleanup(HMAC_CTX)
-
-static bool
-hmac(const EVP_MD *md, const jose_buf_t *key, uint8_t hsh[], ...)
-{
-    openssl_auto(HMAC_CTX) *ctx = NULL;
-    unsigned int ign = 0;
-    va_list ap;
-
-    ctx = HMAC_CTX_new();
-    if (!ctx)
-        return false;
-
-    if (HMAC_Init_ex(ctx, key->data, key->size, md, NULL) <= 0)
-        return false;
-
-    va_start(ap, hsh);
-
-    for (const char *data = NULL; (data = va_arg(ap, const char *)); ) {
-        if (HMAC_Update(ctx, (uint8_t *) data, strlen(data)) <= 0) {
-            va_end(ap);
-            return false;
-        }
-    }
-
-    va_end(ap);
-    return HMAC_Final(ctx, hsh, &ign) > 0;
-}
-
 static bool
 handles(jose_ctx_t *ctx, json_t *jwk)
 {
@@ -130,62 +101,72 @@ suggest(jose_ctx_t *ctx, const json_t *jwk)
     }
 }
 
-static bool
-sign(jose_ctx_t *ctx, json_t *sig, const json_t *jwk,
-     const char *alg, const char *prot, const char *payl)
+static void
+sig_free(jose_jws_sctx_hook_t *sctx)
+{
+    HMAC_CTX_free((HMAC_CTX *) sctx);
+}
+
+static jose_jws_sctx_hook_t *
+sig_init(jose_ctx_t *ctx, const json_t *jwk, const char *alg)
 {
     jose_buf_auto_t *key = NULL;
     const EVP_MD *md = NULL;
+    HMAC_CTX *hctx = NULL;
 
     switch (str2enum(alg, NAMES, NULL)) {
     case 0: md = EVP_sha256(); break;
     case 1: md = EVP_sha384(); break;
     case 2: md = EVP_sha512(); break;
-    default: return false;
+    default: return NULL;
     }
 
-    uint8_t hsh[EVP_MD_size(md)];
-
     key = jose_b64_decode_json(json_object_get(jwk, "k"));
-    if (!key || key->size < sizeof(hsh))
-        return false;
+    if (!key) {
+        jose_ctx_err(ctx, "Error decoding JWK");
+        return NULL;
+    }
 
-    if (!hmac(md, key, hsh, prot ? prot : "", ".", payl ? payl : ".", NULL))
-        return false;
+    if (key->size < (size_t) EVP_MD_size(md)) {
+        jose_ctx_err(ctx, "Key is too small");
+        return NULL;
+    }
 
-    return json_object_set_new(sig, "signature",
-                               jose_b64_encode_json(hsh, sizeof(hsh))) == 0;
+    hctx = HMAC_CTX_new();
+    if (!hctx)
+        return NULL;
+
+    if (HMAC_Init_ex(hctx, key->data, key->size, md, NULL) <= 0) {
+        jose_ctx_err(ctx, "Error initializing HMAC_CTX");
+        HMAC_CTX_free(hctx);
+        return NULL;
+    }
+
+    return (jose_jws_sctx_hook_t *) hctx;
 }
 
 static bool
-verify(jose_ctx_t *ctx, const json_t *sig, const json_t *jwk,
-       const char *alg, const char *prot, const char *payl)
+sig_push(jose_jws_sctx_hook_t *sctx, const char *data)
 {
-    jose_buf_auto_t *key = NULL;
-    jose_buf_auto_t *sgn = NULL;
-    const EVP_MD *md = NULL;
+    HMAC_CTX *hctx = (HMAC_CTX *) sctx;
+    return HMAC_Update(hctx, (uint8_t *) data, strlen(data)) > 0;
+}
 
-    switch (str2enum(alg, NAMES, NULL)) {
-    case 0: md = EVP_sha256(); break;
-    case 1: md = EVP_sha384(); break;
-    case 2: md = EVP_sha512(); break;
-    default: return false;
-    }
+static jose_buf_t *
+sig_done(jose_jws_sctx_hook_t *sctx)
+{
+    HMAC_CTX *hctx = (HMAC_CTX *) sctx;
+    jose_buf_auto_t *s = NULL;
+    unsigned int i = 0;
 
-    uint8_t hsh[EVP_MD_size(md)];
+    s = jose_buf(EVP_MD_size(HMAC_CTX_get_md(hctx)), JOSE_BUF_FLAG_WIPE);
+    if (!s)
+        return NULL;
 
-    sgn = jose_b64_decode_json(json_object_get(sig, "signature"));
-    if (!sgn || sgn->size != sizeof(hsh))
-        return false;
+    if (HMAC_Final(hctx, s->data, &i) <= 0)
+        return NULL;
 
-    key = jose_b64_decode_json(json_object_get(jwk, "k"));
-    if (!key || key->size < sizeof(hsh))
-        return false;
-
-    if (!hmac(md, key, hsh, prot ? prot : "", ".", payl ? payl : ".", NULL))
-        return false;
-
-    return CRYPTO_memcmp(hsh, sgn->data, sizeof(hsh)) == 0;
+    return jose_buf_incref(s);
 }
 
 static void __attribute__((constructor))
@@ -197,9 +178,9 @@ constructor(void)
     };
 
     static jose_jws_signer_t signers[] = {
-        { NULL, "HS256", suggest, sign, verify },
-        { NULL, "HS384", suggest, sign, verify },
-        { NULL, "HS512", suggest, sign, verify },
+        { NULL, "HS256", suggest, sig_init, sig_push, sig_done, sig_free },
+        { NULL, "HS384", suggest, sig_init, sig_push, sig_done, sig_free },
+        { NULL, "HS512", suggest, sig_init, sig_push, sig_done, sig_free },
         {}
     };
 

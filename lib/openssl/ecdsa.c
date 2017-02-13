@@ -23,58 +23,17 @@
 
 #define NAMES "ES256", "ES384", "ES512"
 
-declare_cleanup(EVP_MD_CTX)
+struct jose_jws_sctx_hook {
+    EVP_MD_CTX *ctx;
+    EC_KEY *key;
+};
+
+struct jose_jws_vctx_hook {
+    jose_jws_sctx_hook_t sctx;
+    ECDSA_SIG *sig;
+};
+
 declare_cleanup(ECDSA_SIG)
-declare_cleanup(EC_KEY)
-
-static EC_KEY *
-setup(jose_ctx_t *ctx, const json_t *jwk, const char *alg, const char *prot,
-      const char *payl, uint8_t hsh[], size_t *hl)
-{
-    openssl_auto(EVP_MD_CTX) *emc = NULL;
-    openssl_auto(EC_KEY) *key = NULL;
-    const EVP_MD *md = NULL;
-    const char *req = NULL;
-    unsigned int ign = 0;
-
-    *hl = 0;
-
-    key = jose_openssl_jwk_to_EC_KEY(jwk);
-    if (!key)
-        return NULL;
-
-    switch (EC_GROUP_get_curve_name(EC_KEY_get0_group(key))) {
-    case NID_X9_62_prime256v1: req = "ES256"; md = EVP_sha256(); break;
-    case NID_secp384r1:        req = "ES384"; md = EVP_sha384(); break;
-    case NID_secp521r1:        req = "ES512"; md = EVP_sha512(); break;
-    default: return NULL;
-    }
-
-    if (strcmp(alg, req) != 0)
-        return NULL;
-
-    emc = EVP_MD_CTX_new();
-    if (!emc)
-        return NULL;
-
-    if (EVP_DigestInit(emc, md) <= 0)
-        return NULL;
-
-    if (EVP_DigestUpdate(emc, (const uint8_t *) prot, strlen(prot)) <= 0)
-        return NULL;
-
-    if (EVP_DigestUpdate(emc, (const uint8_t *) ".", 1) <= 0)
-        return NULL;
-
-    if (EVP_DigestUpdate(emc, (const uint8_t *) payl, strlen(payl)) <= 0)
-        return NULL;
-
-    if (EVP_DigestFinal(emc, hsh, &ign) <= 0)
-        return NULL;
-
-    *hl = EVP_MD_size(md);
-    return EC_KEY_up_ref(key) > 0 ? key : NULL;
-}
 
 static bool
 handles(jose_ctx_t *ctx, json_t *jwk)
@@ -147,70 +106,169 @@ suggest(jose_ctx_t *ctx, const json_t *jwk)
 }
 
 static bool
-sign(jose_ctx_t *ctx, json_t *sig, const json_t *jwk,
-     const char *alg, const char *prot, const char *payl)
+setup(jose_ctx_t *ctx, const json_t *jwk, const char *alg,
+      jose_jws_sctx_hook_t *sctx)
 {
-    openssl_auto(ECDSA_SIG) *ecdsa = NULL;
-    openssl_auto(EC_KEY) *key = NULL;
-    uint8_t hsh[EVP_MAX_MD_SIZE];
-    const BIGNUM *r = NULL;
-    const BIGNUM *s = NULL;
-    size_t hl = 0;
+    const EVP_MD *md = NULL;
+    const char *req = NULL;
 
-    key = setup(ctx, jwk, alg, prot, payl, hsh, &hl);
-    if (!key)
+    sctx->key = jose_openssl_jwk_to_EC_KEY(jwk);
+    if (!sctx->key)
         return false;
 
-    uint8_t out[(EC_GROUP_get_degree(EC_KEY_get0_group(key)) + 7) / 8 * 2];
+    switch (EC_GROUP_get_curve_name(EC_KEY_get0_group(sctx->key))) {
+    case NID_X9_62_prime256v1: req = "ES256"; md = EVP_sha256(); break;
+    case NID_secp384r1:        req = "ES384"; md = EVP_sha384(); break;
+    case NID_secp521r1:        req = "ES512"; md = EVP_sha512(); break;
+    default: return false;
+    }
 
-    ecdsa = ECDSA_do_sign(hsh, hl, key);
-    if (!ecdsa)
+    if (strcmp(alg, req) != 0)
         return false;
 
-    ECDSA_SIG_get0(ecdsa, &r, &s);
-
-    if (!bn_encode(r, out, sizeof(out) / 2))
+    sctx->ctx = EVP_MD_CTX_new();
+    if (!sctx->ctx)
         return false;
 
-    if (!bn_encode(s, &out[sizeof(out) / 2], sizeof(out) / 2))
-        return false;
+    return EVP_DigestInit(sctx->ctx, md) > 0;
+}
 
-    return json_object_set_new(sig, "signature",
-                               jose_b64_encode_json(out, sizeof(out))) == 0;
+static void
+sig_free(jose_jws_sctx_hook_t *sctx)
+{
+    if (!sctx)
+        return;
+
+    EVP_MD_CTX_free(sctx->ctx);
+    EC_KEY_free(sctx->key);
+    free(sctx);
+}
+
+static jose_jws_sctx_hook_t *
+sig_init(jose_ctx_t *ctx, const json_t *jwk, const char *alg)
+{
+    jose_jws_sctx_hook_t *sctx = NULL;
+
+    sctx = calloc(1, sizeof(*sctx));
+    if (!sctx)
+        return NULL;
+
+    if (setup(ctx, jwk, alg, sctx))
+        return sctx;
+
+    sig_free(sctx);
+    return NULL;
 }
 
 static bool
-verify(jose_ctx_t *ctx, const json_t *sig, const json_t *jwk,
-       const char *alg, const char *prot, const char *payl)
+sig_push(jose_jws_sctx_hook_t *sctx, const char *data)
 {
+    return EVP_DigestUpdate(sctx->ctx,
+                            (const uint8_t *) data,
+                            strlen(data)) > 0;
+}
+
+static jose_buf_t *
+sig_done(jose_jws_sctx_hook_t *sctx)
+{
+    uint8_t hash[EVP_MD_size(EVP_MD_CTX_md(sctx->ctx))];
     openssl_auto(ECDSA_SIG) *ecdsa = NULL;
-    uint8_t hsh[EVP_MAX_MD_SIZE];
-    jose_buf_auto_t *sgn = NULL;
-    EC_KEY *key = NULL;
-    bool ret = false;
+    jose_buf_auto_t *sig = NULL;
+    const BIGNUM *r = NULL;
+    const BIGNUM *s = NULL;
+    unsigned int hlen = 0;
+    int degree = 0;
+
+    if (EVP_DigestFinal(sctx->ctx, hash, &hlen) <= 0)
+        goto error;
+
+    degree = EC_GROUP_get_degree(EC_KEY_get0_group(sctx->key));
+    sig = jose_buf((degree + 7) / 8 * 2, JOSE_BUF_FLAG_WIPE);
+    if (!sig)
+        goto error;
+
+    ecdsa = ECDSA_do_sign(hash, hlen, sctx->key);
+    if (!ecdsa)
+        goto error;
+
+    ECDSA_SIG_get0(ecdsa, &r, &s);
+
+    if (!bn_encode(r, sig->data, sig->size / 2))
+        goto error;
+
+    if (!bn_encode(s, &sig->data[sig->size / 2], sig->size / 2))
+        goto error;
+
+    sig_free(sctx);
+    return jose_buf_incref(sig);
+
+error:
+    sig_free(sctx);
+    return NULL;
+}
+
+static void
+ver_free(jose_jws_vctx_hook_t *vctx)
+{
+    if (!vctx)
+        return;
+
+    EVP_MD_CTX_free(vctx->sctx.ctx);
+    EC_KEY_free(vctx->sctx.key);
+    ECDSA_SIG_free(vctx->sig);
+    free(vctx);
+}
+
+static jose_jws_vctx_hook_t *
+ver_init(jose_ctx_t *ctx, const json_t *jwk, const char *alg, jose_buf_t *sig)
+{
+    jose_jws_vctx_hook_t *vctx = NULL;
     BIGNUM *r = NULL;
     BIGNUM *s = NULL;
-    size_t hshl = 0;
 
-    key = setup(ctx, jwk, alg, prot, payl, hsh, &hshl);
-    if (!key)
-        return false;
+    vctx = calloc(1, sizeof(*vctx));
+    if (!vctx)
+        return NULL;
 
-    sgn = jose_b64_decode_json(json_object_get(sig, "signature"));
-    if (sig) {
-        r = bn_decode(sgn->data, sgn->size / 2);
-        s = bn_decode(&sgn->data[sgn->size / 2], sgn->size / 2);
-        ecdsa = ECDSA_SIG_new();
-        if (ecdsa && ECDSA_SIG_set0(ecdsa, r, s) > 0) {
-            r = NULL;
-            s = NULL;
-            ret = ECDSA_do_verify(hsh, hshl, ecdsa, key) == 1;
-        }
+    vctx->sig = ECDSA_SIG_new();
+    if (!vctx->sig)
+        goto error;
+
+    r = bn_decode(sig->data, sig->size / 2);
+    s = bn_decode(&sig->data[sig->size / 2], sig->size / 2);
+    if (ECDSA_SIG_set0(vctx->sig, r, s) <= 0) {
+        BN_free(r);
+        BN_free(s);
+        goto error;
     }
 
-    EC_KEY_free(key);
-    BN_free(r);
-    BN_free(s);
+    if (setup(ctx, jwk, alg, &vctx->sctx))
+        return vctx;
+
+error:
+    ver_free(vctx);
+    return NULL;
+}
+
+static bool
+ver_push(jose_jws_vctx_hook_t *vctx, const char *data)
+{
+    return EVP_DigestUpdate(vctx->sctx.ctx,
+                            (const uint8_t *) data,
+                            strlen(data)) > 0;
+}
+
+static bool
+ver_done(jose_jws_vctx_hook_t *vctx)
+{
+    uint8_t hash[EVP_MD_size(EVP_MD_CTX_md(vctx->sctx.ctx))];
+    unsigned int hlen = 0;
+    bool ret = false;
+
+    if (EVP_DigestFinal(vctx->sctx.ctx, hash, &hlen) > 0)
+        ret = ECDSA_do_verify(hash, hlen, vctx->sig, vctx->sctx.key) == 1;
+
+    ver_free(vctx);
     return ret;
 }
 
@@ -223,9 +281,15 @@ constructor(void)
     };
 
     static jose_jws_signer_t signers[] = {
-        { NULL, "ES256", suggest, sign, verify },
-        { NULL, "ES384", suggest, sign, verify },
-        { NULL, "ES512", suggest, sign, verify },
+        { NULL, "ES256", suggest,
+            sig_init, sig_push, sig_done, sig_free,
+            ver_init, ver_push, ver_done, ver_free },
+        { NULL, "ES384", suggest,
+            sig_init, sig_push, sig_done, sig_free,
+            ver_init, ver_push, ver_done, ver_free },
+        { NULL, "ES512", suggest,
+            sig_init, sig_push, sig_done, sig_free,
+            ver_init, ver_push, ver_done, ver_free },
         {}
     };
 

@@ -67,6 +67,9 @@ ECDSA_SIG_set0(ECDSA_SIG *sig, BIGNUM *r, BIGNUM *s);
 HMAC_CTX *
 HMAC_CTX_new(void);
 
+const EVP_MD *
+HMAC_CTX_get_md(const HMAC_CTX *ctx);
+
 void
 HMAC_CTX_free(HMAC_CTX *ctx);
 #endif
