@@ -11,7 +11,7 @@ inc_HEADERS = jose/buf.h jose/b64.h jose/jwk.h jose/jws.h jose/jwe.h jose/jose.h
 pkgconfig_DATA = jose.pc
 lib_LTLIBRARIES = libjose.la
 libjose_la_LIBADD = @jansson_LIBS@
-libjose_la_LDFLAGS = -export-symbols-regex '^jose_'
+libjose_la_LDFLAGS = -export-symbols-regex '^jose_' -version-info 1:0:0
 libjose_la_SOURCES = \
     lib/misc.c lib/misc.h \
     lib/buf.c \
@@ -29,7 +29,7 @@ pkgconfig_DATA += jose-openssl.pc
 lib_LTLIBRARIES += libjose-openssl.la
 libjose_openssl_la_CFLAGS = $(AM_CFLAGS) @libcrypto_CFLAGS@ -pthread
 libjose_openssl_la_LIBADD = libjose.la @libcrypto_LIBS@ @jansson_LIBS@
-libjose_openssl_la_LDFLAGS = -export-symbols-regex '^jose_openssl_' -pthread
+libjose_openssl_la_LDFLAGS = -export-symbols-regex '^jose_openssl_' -pthread -version-info 1:0:0
 libjose_openssl_la_SOURCES = \
     lib/openssl/compat.c lib/openssl/compat.h \
     lib/openssl/misc.c lib/openssl/misc.h \
@@ -81,6 +81,7 @@ pkgconfig_DATA += jose-zlib.pc
 lib_LTLIBRARIES += libjose-zlib.la
 libjose_zlib_la_CFLAGS = $(AM_CFLAGS) @zlib_CFLAGS@
 libjose_zlib_la_LIBADD = libjose.la @zlib_LIBS@
+libjose_zlib_la_LDFLAGS = -version-info 1:0:0
 libjose_zlib_la_SOURCES = \
     lib/zlib/deflate.c
 
