@@ -92,21 +92,41 @@ typedef struct jose_jws_signer {
     (*ver_free)(jose_jws_vctx_hook_t *vctx);
 } jose_jws_signer_t;
 
+typedef struct jose_jwe_ectx_hook jose_jwe_ectx_hook_t;
+typedef struct jose_jwe_dctx_hook jose_jwe_dctx_hook_t;
 typedef struct jose_jwe_crypter {
     struct jose_jwe_crypter *next;
     const char *enc;
 
-    const char *
-    (*suggest)(jose_ctx_t *ctx, const json_t *jwk);
+    size_t keyl;
+    size_t tagl;
+    size_t ivl;
 
-    bool
-    (*encrypt)(jose_ctx_t *ctx, json_t *jwe, const json_t *cek,
-               const uint8_t pt[], size_t ptl, const char *enc,
-               const char *prot, const char *aad);
+    jose_jwe_ectx_hook_t *
+    (*enc_init)(jose_ctx_t *ctx, const uint8_t key[], const char *enc,
+                const char *prot, const char *aad, uint8_t iv[]);
 
     jose_buf_t *
-    (*decrypt)(jose_ctx_t *ctx, const json_t *jwe, const json_t *cek,
-               const char *enc, const char *prot, const char *aad);
+    (*enc_push)(jose_jwe_ectx_hook_t *ectx, const uint8_t pt[], size_t ptl);
+
+    jose_buf_t *
+    (*enc_done)(jose_jwe_ectx_hook_t *ectx, uint8_t tag[]);
+
+    void
+    (*enc_free)(jose_jwe_ectx_hook_t *ectx);
+
+    jose_jwe_dctx_hook_t *
+    (*dec_init)(jose_ctx_t *ctx, const uint8_t key[], const char *enc,
+                const char *prot, const char *aad, const uint8_t iv[]);
+
+    jose_buf_t *
+    (*dec_push)(jose_jwe_dctx_hook_t *dctx, const uint8_t pt[], size_t ptl);
+
+    jose_buf_t *
+    (*dec_done)(jose_jwe_dctx_hook_t *dctx, const uint8_t tag[]);
+
+    void
+    (*dec_free)(jose_jwe_dctx_hook_t *dctx);
 } jose_jwe_crypter_t;
 
 typedef struct jose_jwe_wrapper {
@@ -125,15 +145,35 @@ typedef struct jose_jwe_wrapper {
               const json_t *rcp, const char *alg, json_t *cek);
 } jose_jwe_wrapper_t;
 
+typedef struct jose_jwe_zdctx_hook jose_jwe_zdctx_hook_t;
+typedef struct jose_jwe_zictx_hook jose_jwe_zictx_hook_t;
 typedef struct jose_jwe_zipper {
     struct jose_jwe_zipper *next;
     const char *zip;
 
-    jose_buf_t *
-    (*deflate)(jose_ctx_t *ctx, const uint8_t val[], size_t len);
+    jose_jwe_zdctx_hook_t *
+    (*def_init)(jose_ctx_t *ctx);
 
     jose_buf_t *
-    (*inflate)(jose_ctx_t *ctx, const uint8_t val[], size_t len);
+    (*def_push)(jose_jwe_zdctx_hook_t *dctx, const uint8_t val[], size_t len);
+
+    jose_buf_t *
+    (*def_done)(jose_jwe_zdctx_hook_t *dctx);
+
+    void
+    (*def_free)(jose_jwe_zdctx_hook_t *dctx);
+
+    jose_jwe_zictx_hook_t *
+    (*inf_init)(jose_ctx_t *ctx);
+
+    jose_buf_t *
+    (*inf_push)(jose_jwe_zictx_hook_t *ictx, const uint8_t val[], size_t len);
+
+    jose_buf_t *
+    (*inf_done)(jose_jwe_zictx_hook_t *ictx);
+
+    void
+    (*inf_free)(jose_jwe_zictx_hook_t *ictx);
 } jose_jwe_zipper_t;
 
 void

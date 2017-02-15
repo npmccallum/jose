@@ -59,100 +59,6 @@ find_zipper(const char *zip)
 }
 
 bool
-jose_jwe_encrypt(jose_ctx_t *ctx, json_t *jwe, const json_t *cek,
-                 const uint8_t pt[], size_t ptl)
-{
-    const jose_jwe_crypter_t *crypter = NULL;
-    const jose_jwe_zipper_t *zipper = NULL;
-    jose_buf_auto_t *zpt = NULL;
-    const char *prot = NULL;
-    const char *kalg = NULL;
-    const char *penc = NULL;
-    const char *senc = NULL;
-    const char *zip = NULL;
-    const char *aad = NULL;
-    json_auto_t *p = NULL;
-
-    if (!jose_jwk_allowed(cek, false, "encrypt"))
-        return false;
-
-    if (json_unpack((json_t *) cek, "{s?s}", "alg", &kalg) == -1)
-        return false;
-
-    if (json_unpack(jwe, "{s?s,s?{s?s,s?s},s?O,s?{s?s}}", "aad", &aad,
-                    "protected", "enc", &penc, "zip", &zip, "protected", &p,
-                    "unprotected", "enc", &senc) == -1)
-        return false;
-
-    if (!penc && !zip && json_is_string(p)) {
-        json_decref(p);
-        p = jose_b64_decode_json_load(p);
-        if (!p)
-            return false;
-
-        if (json_unpack(p, "{s?s,s?s}", "enc", &penc, "zip", &zip) == -1)
-            return false;
-    }
-
-    if (penc && senc && strcmp(penc, senc) != 0)
-        return false;
-
-    if (!penc && !senc) {
-        senc = kalg;
-
-        for (crypter = jose_jwe_crypters(); crypter && !senc; crypter = crypter->next)
-            senc = crypter->suggest(ctx, cek);
-
-        if (!senc || !set_protected_new(jwe, "enc", json_string(senc)))
-            return false;
-    }
-
-    if (kalg && strcmp(penc ? penc : senc, kalg) != 0)
-        return false;
-
-    if (zip) {
-        zipper = find_zipper(zip);
-        if (!zipper)
-            return false;
-
-        zpt = zipper->deflate(ctx, pt, ptl);
-        if (!zpt)
-            return false;
-    }
-
-    crypter = find_crypter(penc ? penc : senc);
-    if (!crypter)
-        return false;
-
-    prot = encode_protected(jwe);
-    if (!prot)
-        return false;
-
-    return crypter->encrypt(ctx, jwe, cek,
-                            zpt ? zpt->data : pt,
-                            zpt ? zpt->size : ptl,
-                            penc ? penc : senc,
-                            prot, aad);
-}
-
-bool
-jose_jwe_encrypt_json(jose_ctx_t *ctx, json_t *jwe, const json_t *cek,
-                      json_t *pt)
-{
-    char *ept = NULL;
-    bool ret = false;
-
-    ept = json_dumps(pt, JSON_SORT_KEYS | JSON_COMPACT | JSON_ENCODE_ANY);
-    if (!ept)
-        return NULL;
-
-    ret = jose_jwe_encrypt(ctx, jwe, cek, (uint8_t *) ept, strlen(ept));
-    memset(ept, 0, strlen(ept));
-    free(ept);
-    return ret;
-}
-
-bool
 jose_jwe_wrap(jose_ctx_t *ctx, json_t *jwe, json_t *cek, const json_t *jwk,
               json_t *rcp)
 {
@@ -291,6 +197,326 @@ jose_jwe_unwrap(jose_ctx_t *ctx, const json_t *jwe, const json_t *jwk,
     return json_incref(cek);
 }
 
+struct jose_jwe_ectx {
+    const jose_jwe_crypter_t *crypter;
+    const jose_jwe_zipper_t *zipper;
+    jose_jwe_zdctx_hook_t *zdctx;
+    jose_jwe_ectx_hook_t *ectx;
+    json_t *jwe;
+    size_t ref;
+};
+
+jose_jwe_ectx_t *
+jose_jwe_ectx(jose_ctx_t *ctx, json_t *jwe, const json_t *cek)
+{
+    jose_jwe_ectx_auto_t *ectx = NULL;
+    jose_buf_auto_t *key = NULL;
+    const char *prot = NULL;
+    const char *kalg = NULL;
+    const char *penc = NULL;
+    const char *senc = NULL;
+    const char *zip = NULL;
+    const char *aad = NULL;
+    json_auto_t *p = NULL;
+
+    if (!jose_jwk_allowed(cek, false, "encrypt")) {
+        jose_ctx_err(ctx, "CEK is not allowed to encrypt");
+        return NULL;
+    }
+
+    key = jose_b64_decode_json(json_object_get(cek, "k"));
+    if (!key) {
+        jose_ctx_err(ctx, "Missing or invalid k parameter in CEK");
+        return NULL;
+    }
+
+    if (json_unpack((json_t *) cek, "{s?s}", "alg", &kalg) == -1)
+        return NULL;
+
+    if (json_unpack(jwe, "{s?s,s?{s?s,s?s},s?O,s?{s?s}}", "aad", &aad,
+                    "protected", "enc", &penc, "zip", &zip, "protected", &p,
+                    "unprotected", "enc", &senc) == -1)
+        return NULL;
+
+    if (!penc && !zip && json_is_string(p)) {
+        json_decref(p);
+        p = jose_b64_decode_json_load(p);
+        if (!p) {
+            jose_ctx_err(ctx, "Protected header contains invalid Base64");
+            return NULL;
+        }
+
+        if (json_unpack(p, "{s?s,s?s}", "enc", &penc, "zip", &zip) == -1)
+            return NULL;
+    }
+
+    if (penc && senc && strcmp(penc, senc) != 0) {
+        jose_ctx_err(ctx, "Encryption algorithm conflict in JOSE headers");
+        return NULL;
+    }
+
+    if (!penc && !senc) {
+        senc = kalg;
+
+        for (jose_jwe_crypter_t *c = jose_jwe_crypters(); c && !senc; c = c->next) {
+            if (c->keyl != key->size)
+                continue;
+
+            senc = c->enc;
+            break;
+        }
+
+        if (!senc) {
+            jose_ctx_err(ctx, "Unable to infer encryption algorithm");
+            return NULL;
+        }
+
+        if (!set_protected_new(jwe, "enc", json_string(senc)))
+            return NULL;
+    }
+
+    if (kalg && strcmp(penc ? penc : senc, kalg) != 0) {
+        jose_ctx_err(ctx, "CEK cannot be used with specified algorithm");
+        return NULL;
+    }
+
+    prot = encode_protected(jwe);
+    if (!prot)
+        return NULL;
+
+    ectx = calloc(1, sizeof(*ectx));
+    if (!ectx)
+        return NULL;
+
+    ectx->ref++;
+    ectx->jwe = json_incref(jwe);
+
+    if (zip) {
+        ectx->zipper = find_zipper(zip);
+        if (!ectx->zipper) {
+            jose_ctx_err(ctx, "Compression algorithm is not supported (%s)", zip);
+            return NULL;
+        }
+
+        ectx->zdctx = ectx->zipper->def_init(ctx);
+        if (!ectx->zdctx)
+            return NULL;
+    }
+
+    ectx->crypter = find_crypter(penc ? penc : senc);
+    if (!ectx->crypter) {
+        jose_ctx_err(ctx, "Encryption algorithm is not supported (%s)",
+                     penc ? penc : senc);
+        return NULL;
+    }
+
+    if (key->size != ectx->crypter->keyl) {
+        jose_ctx_err(ctx, "CEK (%zu) is incorrect size (%zu) for algorithm (%s)",
+                     key->size, ectx->crypter->keyl, ectx->crypter->enc);
+        return NULL;
+    }
+
+    uint8_t iv[ectx->crypter->ivl];
+
+    ectx->ectx = ectx->crypter->enc_init(ctx, key->data, penc ? penc : senc,
+                                         prot, aad, iv);
+    if (!ectx->ectx)
+        return NULL;
+
+    if (json_object_set_new(jwe, "iv",
+                            jose_b64_encode_json(iv, sizeof(iv))) == -1)
+        return NULL;
+
+    return ectx;
+}
+
+jose_jwe_ectx_t *
+jose_jwe_ectx_incref(jose_jwe_ectx_t *ectx)
+{
+    if (ectx)
+        ectx->ref++;
+
+    return ectx;
+}
+
+void
+jose_jwe_ectx_decref(jose_jwe_ectx_t *ectx)
+{
+    if (!ectx)
+        return;
+
+    if (--ectx->ref == 0) {
+        if (ectx->crypter && ectx->ectx)
+            ectx->crypter->enc_free(ectx->ectx);
+        if (ectx->zipper && ectx->zdctx)
+            ectx->zipper->def_free(ectx->zdctx);
+        json_decref(ectx->jwe);
+        free(ectx);
+    }
+}
+
+void
+jose_jwe_ectx_auto(jose_jwe_ectx_t **ectx)
+{
+    if (!ectx)
+        return;
+
+    jose_jwe_ectx_decref(*ectx);
+    *ectx = NULL;
+}
+
+jose_buf_t *
+jose_jwe_ectx_update(jose_jwe_ectx_t *ectx, const uint8_t pt[], size_t ptl)
+{
+    jose_buf_auto_t *zip = NULL;
+
+    if (!ectx || !pt)
+        return NULL;
+
+    if (ectx->zipper) {
+        zip = ectx->zipper->def_push(ectx->zdctx, pt, ptl);
+        if (!zip)
+            return NULL;
+
+        if (zip->size == 0)
+            return jose_buf_incref(zip);
+    }
+
+    return ectx->crypter->enc_push(ectx->ectx,
+                                   zip ? zip->data : pt,
+                                   zip ? zip->size : ptl);
+}
+
+jose_buf_t *
+jose_jwe_ectx_finish(jose_jwe_ectx_t *ectx)
+{
+    jose_buf_auto_t *ct0 = NULL;
+    jose_buf_auto_t *ct1 = NULL;
+
+    if (!ectx)
+        return NULL;
+
+    if (ectx->zipper) {
+        jose_buf_auto_t *zip = NULL;
+
+        zip = ectx->zipper->def_done(ectx->zdctx);
+        if (!zip)
+            return NULL;
+
+        if (zip->size > 0) {
+            ct0 = ectx->crypter->enc_push(ectx->ectx, zip->data, zip->size);
+            if (!ct0)
+                return NULL;
+        }
+    }
+
+    uint8_t tag[ectx->crypter->tagl];
+
+    ct1 = ectx->crypter->enc_done(ectx->ectx, tag);
+    if (!ct1)
+        return NULL;
+
+    if (json_object_set_new(ectx->jwe, "iv",
+                            jose_b64_encode_json(tag, sizeof(tag))) == -1)
+        return NULL;
+
+    if (ct0 && ct1) {
+        jose_buf_auto_t *out = NULL;
+
+        out = jose_buf(ct0->size + ct1->size, JOSE_BUF_FLAG_NONE);
+        if (!out)
+            return NULL;
+
+        memcpy(out->data, ct0->data, ct0->size);
+        memcpy(&out->data[ct0->size], ct1->data, ct1->size);
+        return jose_buf_incref(out);
+    } else if (ct0) {
+        return jose_buf_incref(ct0);
+    } else if (ct1) {
+        return jose_buf_incref(ct1);
+    }
+}
+
+bool
+jose_jwe_encrypt(jose_ctx_t *ctx, json_t *jwe, const json_t *cek,
+                 const uint8_t pt[], size_t ptl)
+{
+
+}
+
+bool
+jose_jwe_encrypt_json(jose_ctx_t *ctx, json_t *jwe, const json_t *cek,
+                      json_t *pt)
+{
+    char *ept = NULL;
+    bool ret = false;
+
+    ept = json_dumps(pt, JSON_SORT_KEYS | JSON_COMPACT | JSON_ENCODE_ANY);
+    if (!ept)
+        return NULL;
+
+    ret = jose_jwe_encrypt(ctx, jwe, cek, (uint8_t *) ept, strlen(ept));
+    memset(ept, 0, strlen(ept));
+    free(ept);
+    return ret;
+}
+
+struct jose_jwe_dctx {
+    size_t ref;
+};
+
+jose_jwe_dctx_t *
+jose_jwe_dctx(jose_ctx_t *ctx, const json_t *jwe, const json_t *cek)
+{
+    jose_jwe_dctx_auto_t *dctx = NULL;
+
+    dctx = calloc(1, sizeof(*dctx));
+    if (!dctx)
+        return NULL;
+
+    dctx->ref++;
+    return dctx;
+}
+
+jose_jwe_dctx_t *
+jose_jwe_dctx_incref(jose_jwe_dctx_t *dctx)
+{
+    if (dctx)
+        dctx->ref++;
+
+    return dctx;
+}
+
+void
+jose_jwe_dctx_decref(jose_jwe_dctx_t *dctx)
+{
+    if (!dctx)
+        return;
+
+    if (--dctx->ref == 0)
+        free(dctx);
+}
+
+void
+jose_jwe_dctx_auto(jose_jwe_dctx_t **dctx)
+{
+    if (!dctx)
+        return;
+
+    jose_jwe_dctx_decref(*dctx);
+    *dctx = NULL;
+}
+
+jose_buf_t *
+jose_jwe_dctx_update(jose_jwe_dctx_t *dctx, const uint8_t ct[], size_t ctl)
+{
+}
+
+jose_buf_t *
+jose_jwe_dctx_finish(jose_jwe_dctx_t *dctx)
+{
+}
+
 jose_buf_t *
 jose_jwe_decrypt(jose_ctx_t *ctx, const json_t *jwe, const json_t *cek)
 {
@@ -349,6 +575,26 @@ jose_jwe_decrypt(jose_ctx_t *ctx, const json_t *jwe, const json_t *cek)
     }
 
     return jose_buf_incref(pt);
+}
+
+jose_jwe_dctx_t *
+jose_jwe_decrypt_init(jose_ctx_t *ctx, const json_t *jwe, const json_t *cek)
+{
+}
+
+jose_buf_t *
+jose_jwe_decrypt_push(jose_jwe_dctx_t *dctx, const uint8_t ct[], size_t ctl)
+{
+}
+
+jose_buf_t *
+jose_jwe_decrypt_done(jose_jwe_dctx_t *dctx)
+{
+}
+
+void
+jose_jwe_decrypt_free(jose_jwe_dctx_t *dctx)
+{
 }
 
 json_t *

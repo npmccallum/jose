@@ -24,25 +24,15 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/**
- * Encrypts the specified plaintext bytes into the JWE using the specified CEK.
- *
- * Please note that this DOES NOT wrap the CEK. You need to also call
- * jose_jwe_wrap() in order to perform that operation.
- */
-bool
-jose_jwe_encrypt(jose_ctx_t *ctx, json_t *jwe, const json_t *cek,
-                 const uint8_t pt[], size_t ptl);
+#if defined(__GNUC__) || defined(__clang__)
+#define jose_jwe_ectx_auto_t \
+    jose_jwe_ectx_t __attribute__((cleanup(jose_jwe_ectx_auto)))
+#define jose_jwe_dctx_auto_t \
+    jose_jwe_dctx_t __attribute__((cleanup(jose_jwe_dctx_auto)))
+#endif
 
-/**
- * Encrypts the specified plaintext JSON into the JWE using the specified CEK.
- *
- * Please note that this DOES NOT wrap the CEK. You need to also call
- * jose_jwe_wrap() in order to perform that operation.
- */
-bool
-jose_jwe_encrypt_json(jose_ctx_t *ctx, json_t *jwe, const json_t *cek,
-                      json_t *pt);
+typedef struct jose_jwe_ectx jose_jwe_ectx_t;
+typedef struct jose_jwe_dctx jose_jwe_dctx_t;
 
 /**
  * Wraps a CEK using the specified JWK.
@@ -87,6 +77,62 @@ jose_jwe_wrap(jose_ctx_t *ctx, json_t *jwe, json_t *cek, const json_t *jwk,
 json_t *
 jose_jwe_unwrap(jose_ctx_t *ctx, const json_t *jwe, const json_t *jwk,
                 const json_t *rcp);
+
+jose_jwe_ectx_t *
+jose_jwe_ectx(jose_ctx_t *ctx, json_t *jwe, const json_t *cek);
+
+jose_jwe_ectx_t *
+jose_jwe_ectx_incref(jose_jwe_ectx_t *ectx);
+
+void
+jose_jwe_ectx_decref(jose_jwe_ectx_t *ectx);
+
+void
+jose_jwe_ectx_auto(jose_jwe_ectx_t **ectx);
+
+jose_buf_t *
+jose_jwe_ectx_update(jose_jwe_ectx_t *ectx, const uint8_t pt[], size_t ptl);
+
+jose_buf_t *
+jose_jwe_ectx_finish(jose_jwe_ectx_t *ectx);
+
+/**
+ * Encrypts the specified plaintext bytes into the JWE using the specified CEK.
+ *
+ * Please note that this DOES NOT wrap the CEK. You need to also call
+ * jose_jwe_wrap() in order to perform that operation.
+ */
+bool
+jose_jwe_encrypt(jose_ctx_t *ctx, json_t *jwe, const json_t *cek,
+                 const uint8_t pt[], size_t ptl);
+
+/**
+ * Encrypts the specified plaintext JSON into the JWE using the specified CEK.
+ *
+ * Please note that this DOES NOT wrap the CEK. You need to also call
+ * jose_jwe_wrap() in order to perform that operation.
+ */
+bool
+jose_jwe_encrypt_json(jose_ctx_t *ctx, json_t *jwe, const json_t *cek,
+                      json_t *pt);
+
+jose_jwe_dctx_t *
+jose_jwe_dctx(jose_ctx_t *ctx, const json_t *jwe, const json_t *cek);
+
+jose_jwe_dctx_t *
+jose_jwe_dctx_incref(jose_jwe_dctx_t *dctx);
+
+void
+jose_jwe_dctx_decref(jose_jwe_dctx_t *dctx);
+
+void
+jose_jwe_dctx_auto(jose_jwe_dctx_t **dctx);
+
+jose_buf_t *
+jose_jwe_dctx_update(jose_jwe_dctx_t *dctx, const uint8_t ct[], size_t ctl);
+
+jose_buf_t *
+jose_jwe_dctx_finish(jose_jwe_dctx_t *dctx);
 
 /**
  * Decrypts the ciphertext bytes in the JWE using the specified CEK.
