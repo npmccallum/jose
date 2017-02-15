@@ -16,12 +16,32 @@
  */
 
 #include <jose/ctx.h>
+#undef jose_ctx_err
+
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 
 struct jose_ctx {
     size_t ref;
+    jose_ctx_err_t *err;
+    void *misc;
 };
+
+static void
+dflt_err(void *misc, const char *file, int line, const char *fmt, va_list ap)
+{
+    fprintf(stderr, "%s:%d:", file, line);
+
+    if (errno != 0)
+        fprintf(stderr, "%s:", strerror(errno));
+
+    vfprintf(stderr, fmt, ap);
+    fprintf(stderr, "\n");
+}
+
+static jose_ctx_t dflt = { .err = dflt_err };
 
 jose_ctx_t *
 jose_ctx(void)
@@ -63,4 +83,36 @@ jose_ctx_auto(jose_ctx_t **ctx)
 
     jose_ctx_decref(*ctx);
     *ctx = NULL;
+}
+
+void
+jose_ctx_err_set(jose_ctx_t *ctx, jose_ctx_err_t *err, void *misc)
+{
+    if (!ctx)
+        ctx = &dflt;
+
+    ctx->err = err;
+    ctx->misc = misc;
+}
+
+void *
+jose_ctx_err_get(jose_ctx_t *ctx)
+{
+    if (!ctx)
+        ctx = &dflt;
+
+    return ctx->err;
+}
+
+void __attribute__((format(printf, 4, 5)))
+jose_ctx_err(jose_ctx_t *ctx, const char *file, int line, const char *fmt, ...)
+{
+    va_list ap;
+
+    if (!ctx)
+        ctx = &dflt;
+
+    va_start(ap, fmt);
+    ctx->err(ctx->misc, file, line, fmt, ap);
+    va_end(ap);
 }
