@@ -65,5 +65,5 @@ JOSE_CFLAGS="\
 "
 AC_SUBST([JOSE_CFLAGS])
 
-AC_CONFIG_FILES([jose.pc jose-openssl.pc jose-zlib.pc Makefile])
+AC_CONFIG_FILES([jose/jose.h jose.pc jose-openssl.pc jose-zlib.pc Makefile])
 AC_OUTPUT
