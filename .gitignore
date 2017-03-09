@@ -36,6 +36,7 @@ test-*
 vgcore.*
 
 cmd/jose
+jose/jose.h
 tests/b64
 tests/jwk
 tests/jwkset

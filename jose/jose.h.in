@@ -22,6 +22,8 @@
 #include "jws.h"
 #include "jwe.h"
 
+#define JOSE_VERSION @VERSION@
+
 /**
  * Converts a JWS or JWE from compact format into JSON format.
  */
